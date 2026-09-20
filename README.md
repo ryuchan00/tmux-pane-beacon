@@ -4,6 +4,11 @@ Give every tmux pane its own color, and print the pane index and title on the
 top border in that color. External tools can raise an alert on a background
 pane; the alert clears automatically when you select that pane.
 
+![Four panes, each with its own border color. Pane 3 shows an alert instead of its title.](docs/screenshot.png)
+
+Panes 0-2 show their titles; pane 3 has an alert raised on it, so it shows
+`🔔 deploy finished` and its window is highlighted until you select it.
+
 ## Requirements
 
 - tmux 3.0 or later (the plugin uses per-pane options, `set-option -p`, and
