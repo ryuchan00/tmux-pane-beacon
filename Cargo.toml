@@ -1,0 +1,17 @@
+[package]
+name = "tmux-pane-beacon"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+description = "Show coding-agent status and alerts on tmux pane borders"
+repository = "https://github.com/ryuchan00/tmux-pane-beacon"
+
+[[bin]]
+name = "pane-beacon"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+

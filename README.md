@@ -1,8 +1,10 @@
 # tmux-pane-beacon
 
 Give every tmux pane its own color, and print the pane index and title on the
-top border in that color. External tools can raise an alert on a background
-pane; the alert clears automatically when you select that pane.
+top border in that color. Coding agents can publish a concise task summary and
+status to their pane. External tools can also raise an alert on a background
+pane; the alert clears automatically when you select that pane. Core commands
+are implemented in Rust.
 
 ![Four panes, each with its own border color. Pane 3 shows an alert instead of its title.](docs/screenshot.png)
 
@@ -13,7 +15,8 @@ Panes 0-2 show their titles; pane 3 has an alert raised on it, so it shows
 
 - tmux 3.0 or later (the plugin uses per-pane options, `set-option -p`, and
   indexed hooks)
-- bash
+- Rust 1.85 or later
+- bash (TPM entry point only)
 
 Verified on tmux 3.7b (macOS) and tmux 3.2a (Ubuntu on WSL).
 
@@ -25,6 +28,16 @@ and press `prefix + I`:
 ```tmux
 set -g @plugin 'ryuchan00/tmux-pane-beacon'
 ```
+
+TPM clones the source. Build the native binary once, then reload tmux:
+
+```bash
+cd ~/.tmux/plugins/tmux-pane-beacon
+make build
+tmux source-file ~/.tmux.conf
+```
+
+CI builds native artifacts for Intel and Arm Linux and macOS.
 
 To hack on the plugin locally, symlink your working copy into TPM's plugin
 directory. TPM treats an existing directory as already installed, so the
@@ -77,6 +90,20 @@ With a custom window style:
 
 An alert is cleared when you select the pane.
 
+## Coding agents
+
+Agents and hooks can update the pane title with a short summary and publish a
+machine-readable status:
+
+```bash
+~/.tmux/plugins/tmux-pane-beacon/target/release/pane-beacon update "$TMUX_PANE" \
+  --agent codex --status working --summary "Porting the plugin to Rust"
+```
+
+Supported statuses are `working`, `waiting`, `completed`, and `error`.
+`waiting`, `completed`, and `error` also raise an alert when the pane is not
+currently visible. Use `clear <pane_id>` to remove its status and alert.
+
 ## Note
 
 `pane-active-border-style` is overridden per window so the active pane's own
@@ -85,8 +112,9 @@ apply to the active pane's border.
 
 ## Tests
 
-Behavior tests run against an isolated tmux server; scripts are checked
-statically. Requires bats-core and shellcheck.
+Rust unit tests and behavior tests run against an isolated tmux server; the
+remaining shell entry points are checked statically. Requires bats-core and
+shellcheck.
 
 ```bash
 make test
