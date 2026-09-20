@@ -4,9 +4,9 @@
 
 tmux の各ペインに固有色を割り当て、上側の枠線にペイン番号とタイトルを表示する TPM プラグインです。Codex や Claude Code などのエージェントは、現在の作業要約と状態をペインへ送れます。バックグラウンドのペインへアラートを設定し、そのペインを選択したときに自動解除することもできます。主要処理は Rust 製です。
 
-![4つのペインにそれぞれ固有色が付き、ペイン3にはタイトルの代わりにアラートが出ている](docs/screenshot.png)
+![4つのペインでコーディングエージェントが動作し、作業要約と完了通知が枠に表示されている](docs/screenshot.png)
 
-ペイン 0〜2 はタイトルを表示し、ペイン 3 にはアラートが立っているため `🔔 deploy finished` を表示しています。アラートはそのペインを選択するまで残ります。
+各ペインの枠には、コーディングエージェントが送った作業要約を表示します。完了、入力待ち、エラーの通知は、そのペインを選択するまで残ります。
 
 English version: [README.md](README.md)
 
@@ -43,6 +43,53 @@ ln -s /path/to/tmux-pane-beacon ~/.tmux/plugins/tmux-pane-beacon
 ```
 
 設定を変更した場合は tmux の設定ファイルを再読込してください。
+
+## tmux がプラグインを読み込む仕組み
+
+`@plugin` の設定だけではプラグインは実行されません。`tmux.conf` の末尾でTPMを実行すると、TPMが登録済みプラグインを順番に読み込みます。このため、TPMを実行する行は `@plugin` の設定より後に置きます。
+
+```tmux
+set -g @plugin 'ryuchan00/tmux-pane-beacon'
+
+# @pluginをすべて設定した後、ファイルの末尾でTPMを実行する
+run '~/.tmux/plugins/tpm/tpm'
+```
+
+読み込み時の処理は次の順序です。
+
+```mermaid
+flowchart TD
+    A[tmuxが ~/.tmux.conf を読む] --> B[@plugin にリポジトリ名を登録]
+    B --> C[tmux.conf末尾でTPMを実行]
+    C --> D[TPMがプラグイン内の *.tmux を実行]
+    D --> E[pane-beacon.tmuxが枠表示とhookを設定]
+    E --> F[Rustバイナリの init が全ペインへ色を割り当てる]
+    F --> G[以後はtmuxのhookがRustバイナリを呼ぶ]
+```
+
+TPMの `prefix + I` は、GitHubのリポジトリを `~/.tmux/plugins/tmux-pane-beacon` へ取得します。Rustバイナリはソースに含まれないため、取得後に `make build` が必要です。ビルド後に `tmux source-file ~/.tmux.conf` を実行すると、TPMが `pane-beacon.tmux` を再実行します。
+
+`pane-beacon.tmux` は常駐プロセスを起動しません。読み込み時に `pane-border-format` とtmuxのhookを設定し、次のイベントが発生したときだけ `target/release/pane-beacon` を実行します。
+
+| イベント | Rust CLIの処理 |
+|---|---|
+| プラグイン読込 | `init` で既存の全ペインへ色を割り当てる |
+| ペイン分割 | `assign-color <pane_id>` で新しいペインへ色を割り当てる |
+| ウィンドウ作成 | `assign-color <pane_id>` で最初のペインへ色を割り当てる |
+| エージェントの状態変更 | 外部hookが `update` を呼び、タイトル・状態・通知を更新する |
+| ペイン選択 | tmuxコマンドで通知を消し、選択中の枠色を更新する |
+
+現在登録されているhookは、次のコマンドで確認できます。
+
+```bash
+tmux show-hooks -g | grep pane-beacon
+```
+
+プラグインを手動で再読込する場合は、通常はtmux設定全体を再読込します。
+
+```bash
+tmux source-file ~/.tmux.conf
+```
 
 ## オプション
 

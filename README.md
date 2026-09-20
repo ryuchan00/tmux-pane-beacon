@@ -6,10 +6,10 @@ status to their pane. External tools can also raise an alert on a background
 pane; the alert clears automatically when you select that pane. Core commands
 are implemented in Rust.
 
-![Four panes, each with its own border color. Pane 3 shows an alert instead of its title.](docs/screenshot.png)
+![Four panes running coding agents, with task summaries and a completion alert on their borders.](docs/screenshot.png)
 
-Panes 0-2 show their titles; pane 3 has an alert raised on it, so it shows
-`🔔 deploy finished` and its window is highlighted until you select it.
+Each border shows the task summary published by its coding agent. Completion,
+waiting, and error alerts remain visible until you select the pane.
 
 ## Requirements
 
@@ -48,6 +48,33 @@ ln -s /path/to/tmux-pane-beacon ~/.tmux/plugins/tmux-pane-beacon
 ```
 
 Reload your tmux configuration after changing any option.
+
+## How tmux loads the plugin
+
+The `@plugin` option only registers the repository with TPM. The final TPM line
+in `tmux.conf` finds each registered plugin and executes its `*.tmux` entry
+point, so it must appear after all `@plugin` options:
+
+```tmux
+set -g @plugin 'ryuchan00/tmux-pane-beacon'
+run '~/.tmux/plugins/tpm/tpm'
+```
+
+TPM executes `pane-beacon.tmux`. That entry point configures the border format,
+registers tmux hooks, and runs `pane-beacon init` to color existing panes. It
+does not start a daemon. Later, pane and window events invoke the Rust binary
+through the registered hooks.
+
+`prefix + I` clones the repository into
+`~/.tmux/plugins/tmux-pane-beacon`. Because the native binary is not committed
+to the repository, run `make build` after installation and then reload
+`~/.tmux.conf`.
+
+Inspect the active hooks with:
+
+```bash
+tmux show-hooks -g | grep pane-beacon
+```
 
 ## Options
 
