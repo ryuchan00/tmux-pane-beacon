@@ -5,7 +5,7 @@
 
 ## 概要
 
-tmux の各ペインに固有色を割り当て、上側の枠線にペイン番号とタイトルを表示する TPM プラグインです。Claude Code と Codex が端末タイトルに出している作業要約は、追加の設定なしで枠線に表示されます。エージェントの hook やほかのツールからバックグラウンドのペインへアラートを設定でき、そのペインを選択すると自動で解除されます。主要処理は Rust 製です。
+tmux の各ペインに固有色を割り当て、上側の枠線にペイン番号とタイトルを表示する TPM プラグインです。Claude Code と Codex が端末タイトルに出している作業要約は、追加の設定なしで枠線に表示されます。エージェントの hook をいくつか設定すると、エージェントが実行中か入力待ちかも枠線に表示し、バックグラウンドのペインで作業が終わったときにはアラートを出します。アラートはそのペインを選択すると自動で解除されます。主要処理は Rust 製です。
 
 ![6つのペインでコーディングエージェントが動作し、各ペインに固有色と作業要約が表示されている。1つのペインには通知が出ている](docs/screenshot.png)
 
@@ -112,6 +112,9 @@ tmux source-file ~/.tmux.conf
 | `@pane_beacon_title_fallback` | `#{pane_current_command}` | タイトルがホスト名のままの場合に表示する format |
 | `@pane_beacon_title_max` | `60` | タイトルの最大表示幅 |
 | `@pane_beacon_alert_icon` | `🔔` | アラートの先頭に表示する記号 |
+| `@pane_beacon_working_icon` | `#[fg=green]●` | 状態が `working` の間に表示する記号。カンマは使えない |
+| `@pane_beacon_waiting_icon` | `#[fg=magenta]●` | 状態が `waiting` の間に表示する記号 |
+| `@pane_beacon_error_icon` | `#[fg=red]●` | 状態が `error` のときに表示する記号 |
 
 設定例です。
 
@@ -158,50 +161,40 @@ Claude Code と Codex は、いま取り組んでいる作業の短い要約を�
 
 タイトルがホスト名のままのペインは、どのプログラムもタイトルを付けていないため、代わりに `@pane_beacon_title_fallback` を表示します。
 
-### エージェントの hook からアラートを出す
+### エージェントの hook から実行状態とアラートを送る
 
-背景のペインでエージェントが終わったことや、入力を待っていることは、タイトルだけでは分かりません。そのためにはエージェントの hook から `scripts/alert.sh` を呼びます。hook はエージェントのペインの中で実行されるので、`$TMUX_PANE` がそのペインを指します。先頭の条件は、tmux の外でエージェントを動かしたときに呼び出しを飛ばすためのものです。
+エージェントがまだ動いているのか、背景のペインで終わったのか、入力を待っているのかは、タイトルだけでは分かりません。これはエージェントの hook から `update` で送ります。`--summary` を付けなければ、`update` はエージェントが付けたタイトルには触れず、状態だけを記録します。
+
+| hook | 状態 | 枠線 | 背景のペインへのアラート |
+|---|---|---|---|
+| `UserPromptSubmit`、`PostToolUse` | `working` | 緑の `●` | なし |
+| `PermissionRequest` | `waiting` | マゼンタの `●` | あり |
+| `Stop` | `completed` | 記号なし | あり |
+
+`PostToolUse` は、権限の確認を承認したあとに状態を `working` へ戻し、古くなった入力待ちのアラートを消すために使います。ほかのツールが出したアラートは残します。hook はエージェントのペインの中で実行されるので、`$TMUX_PANE` がそのペインを指します。`scripts/pane-beacon.sh` は、バイナリがどこに置かれていても探して実行します。先頭の条件は、tmux の外でエージェントを動かしたときに呼び出しを飛ばすためのものです。
 
 Claude Code (`~/.claude/settings.json`):
 
 ```json
 {
   "hooks": {
-    "Stop": [
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Claude: 完了' || true"
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status working || true"
           }
         ]
       }
     ],
-    "Notification": [
+    "PostToolUse": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Claude: 入力待ち' 'fg=magenta,bold' || true"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Codex (`~/.codex/hooks.json`) も同じ形式です。入力待ちには `PermissionRequest` を使います。追加した hook は、Codex で一度 `/hooks` を実行して信頼済みにしてください。
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Codex: 完了' || true"
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status working || true"
           }
         ]
       }
@@ -212,7 +205,17 @@ Codex (`~/.codex/hooks.json`) も同じ形式です。入力待ちには `Permis
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Codex: 入力待ち' 'fg=magenta,bold' || true"
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status waiting || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status completed || true"
           }
         ]
       }
@@ -221,9 +224,62 @@ Codex (`~/.codex/hooks.json`) も同じ形式です。入力待ちには `Permis
 }
 ```
 
+Codex (`~/.codex/hooks.json`) も同じ形式です。追加した hook は、Codex で一度 `/hooks` を実行して信頼済みにしてください。
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status working || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status working || true"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status waiting || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status completed || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+記号は、状態を送ったときと同じコマンドがペインで動いている間だけ表示します。`Stop` hook が来ないままエージェントが終わっても、シェルに戻れば記号は消えます。Claude Code で Esc を押してターンを中断した場合は hook が呼ばれないため、次のプロンプトを送るまで `working` のまま表示されます。
+
 ### 要約を自分で送る
 
-端末タイトルを出さないツールは、`update` で要約と状態を送れます。`update` はペインのタイトルを上書きするため、Claude Code や Codex の hook からは呼ばないでください。エージェント自身が付けたタイトルが置き換わります。
+端末タイトルを出さないツールは、`--summary` で要約も送れます。`--summary` はペインのタイトルを上書きするため、Claude Code や Codex の hook では付けないでください。エージェント自身が付けたタイトルが置き換わります。
 
 ```bash
 ~/.tmux/plugins/tmux-pane-beacon/bin/pane-beacon update "$TMUX_PANE" \
@@ -258,7 +314,7 @@ tmux でコーディングエージェントの状態を追うプラグインは
 | [tmux-handlr](https://github.com/CRThaze/tmux-handlr) | ステータスラインの点、切り替えメニュー、ダッシュボード、サイドバー、ntfy の通知 | 常駐デーモンが各ペインのタイトルと画面の内容を読む |
 | [tmux-agent-status](https://github.com/RatulMaharaj/tmux-agent-status) | ウィンドウ選択画面とステータスバーのバッジ、ウィンドウ名の変更、デスクトップ通知 | 各ペインの tty 上のプロセスを調べる |
 
-tmux-pane-beacon は範囲を絞っています。常駐デーモンを持たず、プロセスや画面の内容も調べません。要約はエージェントがすでに出している端末タイトルをそのまま使い、hook が必要なのはアラートだけです。その代わりに、ペインごとに固定の色を付けるので、レイアウトを組み替えても目的のペインを見つけやすくなります。
+tmux-pane-beacon は範囲を絞っています。常駐デーモンを持たず、プロセスや画面の内容も調べません。要約はエージェントがすでに出している端末タイトルをそのまま使い、hook が必要なのは実行状態とアラートだけです。その代わりに、ペインごとに固定の色を付けるので、レイアウトを組み替えても目的のペインを見つけやすくなります。
 
 ## ライセンス
 

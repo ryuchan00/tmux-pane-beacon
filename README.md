@@ -5,9 +5,10 @@
 
 Give every tmux pane its own color, and print the pane index and title on the
 top border in that color. The task summary that Claude Code and Codex already
-put in the terminal title appears on the border with no extra setup. Agent
-hooks and other tools can raise an alert on a background pane; the alert clears
-automatically when you select that pane. Core commands are implemented in Rust.
+put in the terminal title appears on the border with no extra setup. With a few
+agent hooks, the border also shows whether the agent is running or waiting for
+you, and a background pane gets an alert when its agent finishes; the alert
+clears automatically when you select that pane. Core commands are implemented in Rust.
 
 ![Six stacked panes running coding agents, each with its own border color and task summary. One pane shows an alert instead.](docs/screenshot.png)
 
@@ -112,6 +113,9 @@ tmux show-hooks -g | grep pane-beacon
 | `@pane_beacon_title_fallback` | `#{pane_current_command}` | Format shown when the pane title is still the host name |
 | `@pane_beacon_title_max` | `60` | Maximum title width; longer titles are truncated with `…` |
 | `@pane_beacon_alert_icon` | `🔔` | Symbol printed in front of an alert |
+| `@pane_beacon_working_icon` | `#[fg=green]●` | Shown while the pane is `working`. Do not use commas in it |
+| `@pane_beacon_waiting_icon` | `#[fg=magenta]●` | Shown while the pane is `waiting` |
+| `@pane_beacon_error_icon` | `#[fg=red]●` | Shown after `error` |
 
 Example:
 
@@ -164,54 +168,47 @@ soon as the agent changes it.
 A pane whose title is still the host name has not been given a title by any
 program, so the border shows `@pane_beacon_title_fallback` instead.
 
-### Alerts from agent hooks
+### Running state and alerts from agent hooks
 
-The title does not tell you when an agent in a background pane finished or is
-waiting for you. Call `scripts/alert.sh` from the agent's hooks for that. Hooks
-run inside the agent's pane, so `$TMUX_PANE` points at the right pane. The
-guard skips the call when the agent runs outside tmux.
+The title does not tell you whether an agent is still running, or when an
+agent in a background pane finished or is waiting for you. Send that from the
+agent's hooks with `update`. Without `--summary`, `update` leaves the title the
+agent set alone and only records the state.
+
+| Hook | State | Border | Alert on a background pane |
+|---|---|---|---|
+| `UserPromptSubmit`, `PostToolUse` | `working` | green `●` | no |
+| `PermissionRequest` | `waiting` | magenta `●` | yes |
+| `Stop` | `completed` | no icon | yes |
+
+`PostToolUse` puts the pane back to `working` after you approve a permission
+request, and removes the waiting alert that is no longer true. Alerts raised by
+other tools stay. Hooks run inside the agent's pane, so `$TMUX_PANE` points at the right
+pane, and `scripts/pane-beacon.sh` finds the binary wherever it is installed.
+The guard skips the call when the agent runs outside tmux.
 
 Claude Code (`~/.claude/settings.json`):
 
 ```json
 {
   "hooks": {
-    "Stop": [
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Claude: done' || true"
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status working || true"
           }
         ]
       }
     ],
-    "Notification": [
+    "PostToolUse": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Claude: waiting' 'fg=magenta,bold' || true"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Codex (`~/.codex/hooks.json`) uses the same shape. Use `PermissionRequest` for
-the waiting alert, and run `/hooks` in Codex once to trust the new hooks:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Codex: done' || true"
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status working || true"
           }
         ]
       }
@@ -222,7 +219,17 @@ the waiting alert, and run `/hooks` in Codex once to trust the new hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Codex: waiting' 'fg=magenta,bold' || true"
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status waiting || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status completed || true"
           }
         ]
       }
@@ -231,11 +238,68 @@ the waiting alert, and run `/hooks` in Codex once to trust the new hooks:
 }
 ```
 
+Codex (`~/.codex/hooks.json`) uses the same shape. Run `/hooks` in Codex once
+to trust the new hooks:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status working || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status working || true"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status waiting || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status completed || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The icon is shown only while the pane still runs the command it ran when the
+state was sent. If the agent exits without a `Stop` hook, the icon disappears
+once the pane is back at the shell. An interrupted turn (Esc in Claude Code)
+fires no hook, so the pane keeps showing `working` until the next prompt.
+
 ### Publishing a summary yourself
 
-Tools that do not set the terminal title can publish a summary and a status
-with `update`. It overwrites the pane title, so do not call it from Claude Code
-or Codex hooks; their own titles would be replaced.
+Tools that do not set the terminal title can also publish a summary with
+`--summary`. This overwrites the pane title, so leave it out in Claude Code and
+Codex hooks; their own titles would be replaced.
 
 ```bash
 ~/.tmux/plugins/tmux-pane-beacon/bin/pane-beacon update "$TMUX_PANE" \
@@ -282,7 +346,8 @@ state is shown and how it is detected.
 
 tmux-pane-beacon keeps a narrower scope. It runs no daemon and does not
 inspect processes or screen contents. The summary comes from the terminal title
-the agents already set, and hooks are needed only for alerts. What it adds is a
+the agents already set, and hooks are needed only for the running state and
+alerts. What it adds is a
 fixed color per pane, so a pane stays easy to find after you rearrange the
 layout.
 

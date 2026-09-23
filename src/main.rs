@@ -37,7 +37,7 @@ fn run(args: Vec<OsString>) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "Usage:\n  pane-beacon init\n  pane-beacon assign-color [pane_id]\n  pane-beacon alert <pane_id> <message> [window-status-style]\n  pane-beacon update <pane_id> [--agent NAME] [--status STATUS] --summary TEXT\n  pane-beacon clear <pane_id>".into()
+    "Usage:\n  pane-beacon init\n  pane-beacon assign-color [pane_id]\n  pane-beacon alert <pane_id> <message> [window-status-style]\n  pane-beacon update <pane_id> [--agent NAME] [--status STATUS] [--summary TEXT]\n  pane-beacon clear <pane_id>".into()
 }
 
 fn tmux<I, S>(args: I) -> Result<String, String>
@@ -195,9 +195,11 @@ fn set_alert(pane: &OsStr, message: &OsStr, style: &OsStr) -> Result<(), String>
 
 #[derive(Debug, PartialEq)]
 struct Update {
-    title: String,
+    /// None のときはタイトルに触れない。Claude Code や Codex は自分で端末タイトルに
+    /// 要約を出すため、hook から状態だけを送るときに上書きしないようにする
+    title: Option<String>,
     status: String,
-    summary: String,
+    alert: String,
 }
 
 fn parse_update(args: &[OsString]) -> Result<Update, String> {
@@ -218,59 +220,85 @@ fn parse_update(args: &[OsString]) -> Result<Update, String> {
         }
         index += 2;
     }
-    let summary = summary.ok_or_else(|| "--summary is required".to_owned())?;
-    if !matches!(
-        status.as_str(),
-        "working" | "waiting" | "completed" | "error"
-    ) {
-        return Err(format!(
-            "invalid status: {status} (expected working, waiting, completed, or error)"
-        ));
-    }
-    let title = match agent {
-        Some(agent) => format!("{agent}: {summary}"),
-        None => summary.clone(),
+    let status_text = match status.as_str() {
+        "working" => "working",
+        "waiting" => "waiting for input",
+        "completed" => "done",
+        "error" => "error",
+        _ => {
+            return Err(format!(
+                "invalid status: {status} (expected working, waiting, completed, or error)"
+            ));
+        }
+    };
+    let prefixed = |text: &str| match &agent {
+        Some(agent) => format!("{agent}: {text}"),
+        None => text.to_owned(),
     };
     Ok(Update {
-        title,
+        title: summary.as_deref().map(prefixed),
+        alert: summary.clone().unwrap_or_else(|| prefixed(status_text)),
         status,
-        summary,
     })
 }
 
 fn update(args: &[OsString]) -> Result<(), String> {
     let Some(pane) = args.first() else {
         return Err(
-            "Usage: pane-beacon update <pane_id> [--agent NAME] [--status STATUS] --summary TEXT"
+            "Usage: pane-beacon update <pane_id> [--agent NAME] [--status STATUS] [--summary TEXT]"
                 .into(),
         );
     };
     let Update {
         title,
         status,
-        summary,
+        alert,
     } = parse_update(&args[1..])?;
-    tmux([
-        OsStr::new("select-pane"),
-        OsStr::new("-t"),
-        pane,
-        OsStr::new("-T"),
-        OsStr::new(&title),
-    ])?;
-    tmux([
-        OsStr::new("set-option"),
-        OsStr::new("-p"),
+    if let Some(title) = title {
+        tmux([
+            OsStr::new("select-pane"),
+            OsStr::new("-t"),
+            pane,
+            OsStr::new("-T"),
+            OsStr::new(&title),
+        ])?;
+    }
+    let previous = tmux([
+        OsStr::new("show-option"),
+        OsStr::new("-pqv"),
         OsStr::new("-t"),
         pane,
         OsStr::new("@pane_beacon_status"),
-        OsStr::new(&status),
     ])?;
-    if matches!(status.as_str(), "completed" | "waiting" | "error") {
-        set_alert(
+    // Stop hook が来ないまま終わった場合 (中断やエージェントの終了) に状態が残り続け
+    // ないよう、送ったときのコマンドを覚えておく。枠線はコマンドが変わったら状態を隠す
+    let command = tmux([
+        OsStr::new("display-message"),
+        OsStr::new("-p"),
+        OsStr::new("-t"),
+        pane,
+        OsStr::new("#{pane_current_command}"),
+    ])?;
+    for (name, value) in [
+        ("@pane_beacon_status", status.as_str()),
+        ("@pane_beacon_status_command", command.as_str()),
+    ] {
+        tmux([
+            OsStr::new("set-option"),
+            OsStr::new("-p"),
+            OsStr::new("-t"),
             pane,
-            OsStr::new(&summary),
-            OsStr::new(status_style(&status)),
-        )?;
+            OsStr::new(name),
+            OsStr::new(value),
+        ])?;
+    }
+    // 入力待ちのアラートは、承認されて作業に戻った時点で古くなる。ペインを選ばずに
+    // 承認できる場合もあるため、選択による解除を待たずに消す
+    if status == "working" && previous == "waiting" {
+        clear_alert(pane)?;
+    }
+    if matches!(status.as_str(), "completed" | "waiting" | "error") {
+        set_alert(pane, OsStr::new(&alert), OsStr::new(status_style(&status)))?;
     }
     Ok(())
 }
@@ -288,6 +316,20 @@ fn clear(args: &[OsString]) -> Result<(), String> {
         return Err("Usage: pane-beacon clear <pane_id>".into());
     }
     let pane = &args[0];
+    for name in ["@pane_beacon_status", "@pane_beacon_status_command"] {
+        tmux([
+            OsStr::new("set-option"),
+            OsStr::new("-p"),
+            OsStr::new("-u"),
+            OsStr::new("-t"),
+            pane,
+            OsStr::new(name),
+        ])?;
+    }
+    clear_alert(pane)
+}
+
+fn clear_alert(pane: &OsStr) -> Result<(), String> {
     tmux([
         OsStr::new("set-option"),
         OsStr::new("-p"),
@@ -295,14 +337,6 @@ fn clear(args: &[OsString]) -> Result<(), String> {
         OsStr::new("-t"),
         pane,
         OsStr::new("@pane_beacon_alert"),
-    ])?;
-    tmux([
-        OsStr::new("set-option"),
-        OsStr::new("-p"),
-        OsStr::new("-u"),
-        OsStr::new("-t"),
-        pane,
-        OsStr::new("@pane_beacon_status"),
     ])?;
     let window = window_target(pane)?;
     tmux([
@@ -358,9 +392,9 @@ mod tests {
         assert_eq!(
             update,
             Update {
-                title: "codex: Done".into(),
+                title: Some("codex: Done".into()),
                 status: "completed".into(),
-                summary: "Done".into(),
+                alert: "Done".into(),
             }
         );
     }
@@ -368,16 +402,22 @@ mod tests {
     #[test]
     fn update_defaults_to_working_without_agent() {
         let update = parse_update(&os_args(&["--summary", "Reading"])).unwrap();
-        assert_eq!(update.title, "Reading");
+        assert_eq!(update.title.as_deref(), Some("Reading"));
         assert_eq!(update.status, "working");
     }
 
     #[test]
+    fn update_without_summary_keeps_title_and_names_the_status() {
+        let update = parse_update(&os_args(&["--agent", "claude", "--status", "waiting"])).unwrap();
+        assert_eq!(update.title, None);
+        assert_eq!(update.alert, "claude: waiting for input");
+
+        let update = parse_update(&os_args(&["--status", "completed"])).unwrap();
+        assert_eq!(update.alert, "done");
+    }
+
+    #[test]
     fn update_rejects_bad_arguments() {
-        assert_eq!(
-            parse_update(&os_args(&["--agent", "codex"])).unwrap_err(),
-            "--summary is required"
-        );
         assert_eq!(
             parse_update(&os_args(&["--summary"])).unwrap_err(),
             "missing value for --summary"

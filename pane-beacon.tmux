@@ -11,6 +11,13 @@ get_tmux_option() {
 title_fallback="$(get_tmux_option @pane_beacon_title_fallback '#{pane_current_command}')"
 title_max="$(get_tmux_option @pane_beacon_title_max '60')"
 alert_icon="$(get_tmux_option @pane_beacon_alert_icon '🔔')"
+working_icon="$(get_tmux_option @pane_beacon_working_icon '#[fg=green]●')"
+waiting_icon="$(get_tmux_option @pane_beacon_waiting_icon '#[fg=magenta]●')"
+error_icon="$(get_tmux_option @pane_beacon_error_icon '#[fg=red]●')"
+
+# hook が送った状態の記号。送ったときと同じコマンドがまだ前面にいるときだけ出す。
+# Stop hook が来ずにエージェントが終わっても、シェルに戻れば記号が消える
+status_icon="#{?#{&&:#{@pane_beacon_status},#{==:#{pane_current_command},#{@pane_beacon_status_command}}},#{?#{==:#{@pane_beacon_status},working},$working_icon ,#{?#{==:#{@pane_beacon_status},waiting},$waiting_icon ,#{?#{==:#{@pane_beacon_status},error},$error_icon ,}}}#[fg=#{@pane_beacon_color}],}"
 
 # shellcheck source=scripts/resolve-binary.sh
 source "$PLUGIN_DIR/scripts/resolve-binary.sh"
@@ -21,7 +28,7 @@ fi
 binary="$PANE_BEACON_BINARY"
 
 tmux set-option -g pane-border-status top
-tmux set-option -g pane-border-format "#[fg=#{@pane_beacon_color}]#{?pane_active,━━,──}[#{pane_index}] #{?@pane_beacon_alert,$alert_icon #{@pane_beacon_alert},#{?#{==:#{pane_title},#{host}},$title_fallback,#{=/$title_max/…:pane_title}}} #{?pane_active,━━━━━━━━━━━━━━━━━━━━,────────────────────}"
+tmux set-option -g pane-border-format "#[fg=#{@pane_beacon_color}]#{?pane_active,━━,──}[#{pane_index}] $status_icon#{?@pane_beacon_alert,$alert_icon #{@pane_beacon_alert},#{?#{==:#{pane_title},#{host}},$title_fallback,#{=/$title_max/…:pane_title}}} #{?pane_active,━━━━━━━━━━━━━━━━━━━━,────────────────────}"
 
 tmux set-hook -g 'after-split-window[90]' "run-shell \"$binary assign-color #{pane_id}\""
 tmux set-hook -g 'after-new-window[90]' "run-shell \"$binary assign-color #{pane_id}\""
