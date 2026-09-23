@@ -73,6 +73,13 @@ pane_beacon_download() {
   fi
 
   chmod +x "$tmp/pane-beacon"
+  # 動的リンクの不一致(GLIBC_x.yz not found など)はここで弾く。置いてから
+  # 気付くと、以降ずっと壊れたバイナリを使い続けることになる
+  if ! "$tmp/pane-beacon" --version >/dev/null 2>&1; then
+    printf 'tmux-pane-beacon: downloaded binary does not run here; build from source with make build\n' >&2
+    rm -rf "$tmp"
+    return 1
+  fi
   mkdir -p "$(dirname "$dest")"
   mv "$tmp/pane-beacon" "$dest"
   rm -rf "$tmp"
