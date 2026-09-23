@@ -26,7 +26,9 @@ TPM の設定に次の行を追加し、`prefix + I` でプラグインを読み
 set -g @plugin 'ryuchan00/tmux-pane-beacon'
 ```
 
-TPM はソースを取得します。初回にネイティブバイナリをビルドし、tmux を再読込してください。
+これだけで動きます。初回読み込み時に、実行中のプラットフォーム向けのビルド済みバイナリを対応するGitHubリリースから取得し、公開されている `SHA256SUMS` と突き合わせたうえで、プラグインディレクトリの `bin/pane-beacon` に置きます。リリースは Intel/Arm の Linux と macOS を対象にしています。
+
+ビルド済みバイナリが無いプラットフォームの場合、または自分でビルドしたい場合は、次を一度実行してから tmux を再読込してください。
 
 ```bash
 cd ~/.tmux/plugins/tmux-pane-beacon
@@ -34,7 +36,7 @@ make build
 tmux source-file ~/.tmux.conf
 ```
 
-CI では Intel/Arm の Linux と macOS 向けバイナリをビルドします。
+`PANE_BEACON_BIN=/path/to/pane-beacon` を設定すると、この探索を完全に上書きできます。
 
 ローカル開発では、このディレクトリを TPM のプラグインディレクトリへ symlink します。TPM は既存のディレクトリを導入済みとして扱うので、上の `@plugin` 行はそのままで動きます。
 
@@ -67,7 +69,7 @@ flowchart TD
     F --> G[以後はtmuxのhookがRustバイナリを呼ぶ]
 ```
 
-TPMの `prefix + I` は、GitHubのリポジトリを `~/.tmux/plugins/tmux-pane-beacon` へ取得します。Rustバイナリはソースに含まれないため、取得後に `make build` が必要です。ビルド後に `tmux source-file ~/.tmux.conf` を実行すると、TPMが `pane-beacon.tmux` を再実行します。
+TPMの `prefix + I` は、GitHubのリポジトリを `~/.tmux/plugins/tmux-pane-beacon` へ取得します。Rustバイナリはソースに含まれないため、`pane-beacon.tmux` が初回読み込み時にリリースから取得します(取得できない場合は `make build` が必要です)。取得後に `tmux source-file ~/.tmux.conf` を実行すると、TPMが `pane-beacon.tmux` を再実行します。
 
 `pane-beacon.tmux` は常駐プロセスを起動しません。読み込み時に `pane-border-format` とtmuxのhookを設定し、次のイベントが発生したときだけ `target/release/pane-beacon` を実行します。
 

@@ -29,7 +29,13 @@ and press `prefix + I`:
 set -g @plugin 'ryuchan00/tmux-pane-beacon'
 ```
 
-TPM clones the source. Build the native binary once, then reload tmux:
+That is all: on first load the plugin downloads the prebuilt binary for your
+platform from the matching GitHub release, verifies it against the published
+`SHA256SUMS`, and stores it in `bin/pane-beacon` inside the plugin directory.
+Releases cover Intel and Arm Linux and macOS.
+
+If your platform has no prebuilt binary, or you prefer building yourself,
+run the build once and reload tmux:
 
 ```bash
 cd ~/.tmux/plugins/tmux-pane-beacon
@@ -37,7 +43,7 @@ make build
 tmux source-file ~/.tmux.conf
 ```
 
-CI builds native artifacts for Intel and Arm Linux and macOS.
+`PANE_BEACON_BIN=/path/to/pane-beacon` overrides the lookup entirely.
 
 To hack on the plugin locally, symlink your working copy into TPM's plugin
 directory. TPM treats an existing directory as already installed, so the
@@ -66,8 +72,9 @@ does not start a daemon. Later, pane and window events invoke the Rust binary
 through the registered hooks.
 
 `prefix + I` clones the repository into
-`~/.tmux/plugins/tmux-pane-beacon`. Because the native binary is not committed
-to the repository, run `make build` after installation and then reload
+`~/.tmux/plugins/tmux-pane-beacon`. The native binary is not committed to the
+repository, so the plugin fetches it from the release on first load, or you
+run `make build` yourself, and then reload
 `~/.tmux.conf`.
 
 Inspect the active hooks with:
