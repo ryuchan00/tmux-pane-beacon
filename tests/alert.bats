@@ -13,7 +13,7 @@ load test_helper
   tmux select-pane -t "$pane_id"
 
   [ -z "$(tmux show-option -pqv -t "$pane_id" @pane_beacon_alert)" ]
-  ! tmux show-window-options | grep -q '^window-status-style '
+  [[ $'\n'"$(tmux show-window-options)" != *$'\n'"window-status-style "* ]]
 }
 
 @test "accepts a custom window alert style" {
