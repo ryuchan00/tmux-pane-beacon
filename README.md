@@ -62,7 +62,7 @@ fails, it keeps using the old binary and prints a warning.
 TPM follows the default branch. To pin a version instead, append the tag:
 
 ```tmux
-set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.2.2'
+set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.3.0'
 ```
 
 To hack on the plugin locally, symlink your working copy into TPM's plugin

@@ -46,7 +46,7 @@ tmux source-file ~/.tmux.conf
 TPM はデフォルトブランチを追跡します。バージョンを固定したい場合はタグを付けてください。
 
 ```tmux
-set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.2.2'
+set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.3.0'
 ```
 
 ローカル開発では、このディレクトリを TPM のプラグインディレクトリへ symlink します。TPM は既存のディレクトリを導入済みとして扱うので、上の `@plugin` 行はそのままで動きます。
