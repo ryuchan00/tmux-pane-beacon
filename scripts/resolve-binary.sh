@@ -6,14 +6,16 @@
 
 PANE_BEACON_REPO="${PANE_BEACON_REPO:-ryuchan00/tmux-pane-beacon}"
 
-pane_beacon_target() {
+# 試す順にターゲット名を並べて返す。Linux は musl (静的リンク) を優先し、
+# musl 版を持たない古いリリース向けに gnu も候補に残す
+pane_beacon_targets() {
   local os arch
   os="$(uname -s)"
   arch="$(uname -m)"
 
   case "$os/$arch" in
-    Linux/x86_64) printf 'x86_64-unknown-linux-gnu' ;;
-    Linux/aarch64 | Linux/arm64) printf 'aarch64-unknown-linux-gnu' ;;
+    Linux/x86_64) printf 'x86_64-unknown-linux-musl x86_64-unknown-linux-gnu' ;;
+    Linux/aarch64 | Linux/arm64) printf 'aarch64-unknown-linux-musl aarch64-unknown-linux-gnu' ;;
     Darwin/x86_64) printf 'x86_64-apple-darwin' ;;
     Darwin/arm64) printf 'aarch64-apple-darwin' ;;
     *) return 1 ;;
@@ -38,9 +40,9 @@ pane_beacon_sha256() {
 
 # Releases からバイナリを取得し、SHA256SUMS と突き合わせてから配置する
 pane_beacon_download() {
-  local dir="$1" dest="$2" target version base tmp expected actual
+  local dir="$1" dest="$2" targets target candidate version base tmp expected actual
 
-  target="$(pane_beacon_target)" || {
+  targets="$(pane_beacon_targets)" || {
     printf 'tmux-pane-beacon: unsupported platform %s/%s; build from source with make build\n' "$(uname -s)" "$(uname -m)" >&2
     return 1
   }
@@ -55,8 +57,15 @@ pane_beacon_download() {
   base="https://github.com/$PANE_BEACON_REPO/releases/download/v$version"
   tmp="$(mktemp -d)" || return 1
 
-  if ! curl -fsSL "$base/pane-beacon-$target" -o "$tmp/pane-beacon"; then
-    printf 'tmux-pane-beacon: failed to download %s/pane-beacon-%s\n' "$base" "$target" >&2
+  target=''
+  for candidate in $targets; do
+    if curl -fsSL "$base/pane-beacon-$candidate" -o "$tmp/pane-beacon"; then
+      target="$candidate"
+      break
+    fi
+  done
+  if [ -z "$target" ]; then
+    printf 'tmux-pane-beacon: failed to download a binary from %s\n' "$base" >&2
     rm -rf "$tmp"
     return 1
   fi
