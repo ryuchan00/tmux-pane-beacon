@@ -1,22 +1,28 @@
 # tmux-pane-beacon
 
+[![CI](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/ci.yml)
+[![release](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/release.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/releases/latest)
+
 Give every tmux pane its own color, and print the pane index and title on the
 top border in that color. Coding agents can publish a concise task summary and
 status to their pane. External tools can also raise an alert on a background
 pane; the alert clears automatically when you select that pane. Core commands
 are implemented in Rust.
 
-![Four panes running coding agents, with task summaries and a completion alert on their borders.](docs/screenshot.png)
+![Six stacked panes running coding agents, each with its own border color and task summary. One pane shows an alert instead.](docs/screenshot.png)
 
-Each border shows the task summary published by its coding agent. Completion,
-waiting, and error alerts remain visible until you select the pane.
+Six panes, each running a coding agent. Every pane has its own color, and its
+border shows the task summary that agent published, so you can tell at a glance
+which session is doing what. Pane 2 has an alert on it, so it shows the alert
+instead of its summary. Completion, waiting, and error alerts remain visible
+until you select the pane.
 
 ## Requirements
 
 - tmux 3.0 or later (the plugin uses per-pane options, `set-option -p`, and
   indexed hooks)
-- Rust 1.85 or later
-- bash (TPM entry point only)
+- bash and curl (the TPM entry point and the binary download)
+- Rust 1.85 or later, only if you build from source instead of using a release
 
 Verified on tmux 3.7b (macOS) and tmux 3.2a (Ubuntu on WSL).
 
@@ -45,6 +51,12 @@ tmux source-file ~/.tmux.conf
 
 `PANE_BEACON_BIN=/path/to/pane-beacon` overrides the lookup entirely.
 
+TPM follows the default branch. To pin a version instead, append the tag:
+
+```tmux
+set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.2.2'
+```
+
 To hack on the plugin locally, symlink your working copy into TPM's plugin
 directory. TPM treats an existing directory as already installed, so the
 `@plugin` line above keeps working:
@@ -71,11 +83,13 @@ registers tmux hooks, and runs `pane-beacon init` to color existing panes. It
 does not start a daemon. Later, pane and window events invoke the Rust binary
 through the registered hooks.
 
-`prefix + I` clones the repository into
-`~/.tmux/plugins/tmux-pane-beacon`. The native binary is not committed to the
-repository, so the plugin fetches it from the release on first load, or you
-run `make build` yourself, and then reload
-`~/.tmux.conf`.
+`prefix + I` clones the repository into `~/.tmux/plugins/tmux-pane-beacon`. The
+native binary is not committed, so the entry point resolves it on first load, in
+this order: `$PANE_BEACON_BIN`, `bin/pane-beacon` (downloaded from a release),
+`target/release/pane-beacon` (your own build), and finally a download from the
+release matching the version in `Cargo.toml`. A downloaded binary is checked
+against `SHA256SUMS` and run once with `--version` before it is kept, so a
+binary built against a newer libc is rejected rather than stored.
 
 Inspect the active hooks with:
 
@@ -130,7 +144,7 @@ Agents and hooks can update the pane title with a short summary and publish a
 machine-readable status:
 
 ```bash
-~/.tmux/plugins/tmux-pane-beacon/target/release/pane-beacon update "$TMUX_PANE" \
+~/.tmux/plugins/tmux-pane-beacon/bin/pane-beacon update "$TMUX_PANE" \
   --agent codex --status working --summary "Porting the plugin to Rust"
 ```
 

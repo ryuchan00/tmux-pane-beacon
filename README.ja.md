@@ -1,20 +1,23 @@
 # tmux-pane-beacon
 
+[![CI](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/ci.yml)
+[![release](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/release.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/releases/latest)
+
 ## 概要
 
 tmux の各ペインに固有色を割り当て、上側の枠線にペイン番号とタイトルを表示する TPM プラグインです。Codex や Claude Code などのエージェントは、現在の作業要約と状態をペインへ送れます。バックグラウンドのペインへアラートを設定し、そのペインを選択したときに自動解除することもできます。主要処理は Rust 製です。
 
-![4つのペインでコーディングエージェントが動作し、作業要約と完了通知が枠に表示されている](docs/screenshot.png)
+![6つのペインでコーディングエージェントが動作し、各ペインに固有色と作業要約が表示されている。1つのペインには通知が出ている](docs/screenshot.png)
 
-各ペインの枠には、コーディングエージェントが送った作業要約を表示します。完了、入力待ち、エラーの通知は、そのペインを選択するまで残ります。
+6つのペインでそれぞれコーディングエージェントを動かしている状態です。ペインごとに色が違い、枠にはそのエージェントが送った作業要約が出るため、どのセッションが何をしているかが一目で分かります。ペイン2には通知が立っているため、要約の代わりに通知を表示しています。完了、入力待ち、エラーの通知は、そのペインを選択するまで残ります。
 
 English version: [README.md](README.md)
 
 ## 要件
 
 - tmux 3.0 以降 (ペイン単位オプション `set-option -p` と hook の配列指定を使うため)
-- Rust 1.85 以降
-- bash (TPM の入口のみ)
+- bash と curl (TPM の入口とバイナリの取得に使う)
+- Rust 1.85 以降 (リリースを使わず自分でビルドする場合のみ)
 
 動作確認は tmux 3.7b (macOS) と tmux 3.2a (Ubuntu on WSL) で行っています。
 
@@ -37,6 +40,12 @@ tmux source-file ~/.tmux.conf
 ```
 
 `PANE_BEACON_BIN=/path/to/pane-beacon` を設定すると、この探索を完全に上書きできます。
+
+TPM はデフォルトブランチを追跡します。バージョンを固定したい場合はタグを付けてください。
+
+```tmux
+set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.2.2'
+```
 
 ローカル開発では、このディレクトリを TPM のプラグインディレクトリへ symlink します。TPM は既存のディレクトリを導入済みとして扱うので、上の `@plugin` 行はそのままで動きます。
 
@@ -69,9 +78,9 @@ flowchart TD
     F --> G[以後はtmuxのhookがRustバイナリを呼ぶ]
 ```
 
-TPMの `prefix + I` は、GitHubのリポジトリを `~/.tmux/plugins/tmux-pane-beacon` へ取得します。Rustバイナリはソースに含まれないため、`pane-beacon.tmux` が初回読み込み時にリリースから取得します(取得できない場合は `make build` が必要です)。取得後に `tmux source-file ~/.tmux.conf` を実行すると、TPMが `pane-beacon.tmux` を再実行します。
+TPMの `prefix + I` は、GitHubのリポジトリを `~/.tmux/plugins/tmux-pane-beacon` へ取得します。Rustバイナリはソースに含まれないため、`pane-beacon.tmux` が初回読み込み時に次の順で解決します。`$PANE_BEACON_BIN`、`bin/pane-beacon` (リリースから取得済みのもの)、`target/release/pane-beacon` (自分でビルドしたもの)、最後に `Cargo.toml` のversionに対応するリリースからのダウンロードです。ダウンロードしたバイナリは `SHA256SUMS` と突き合わせ、`--version` で起動できることを確認してから配置します。新しいlibcに対してビルドされたバイナリは、ここで弾かれて保存されません。
 
-`pane-beacon.tmux` は常駐プロセスを起動しません。読み込み時に `pane-border-format` とtmuxのhookを設定し、次のイベントが発生したときだけ `target/release/pane-beacon` を実行します。
+`pane-beacon.tmux` は常駐プロセスを起動しません。読み込み時に `pane-border-format` とtmuxのhookを設定し、次のイベントが発生したときだけ Rust バイナリを実行します。
 
 | イベント | Rust CLIの処理 |
 |---|---|
@@ -139,7 +148,7 @@ scripts/alert.sh <pane_id> <message> [window-status-style]
 エージェントや hook から、短い作業要約と状態をペインへ送れます。
 
 ```bash
-~/.tmux/plugins/tmux-pane-beacon/target/release/pane-beacon update "$TMUX_PANE" \
+~/.tmux/plugins/tmux-pane-beacon/bin/pane-beacon update "$TMUX_PANE" \
   --agent codex --status working --summary "Rust への移植を実装中"
 ```
 
