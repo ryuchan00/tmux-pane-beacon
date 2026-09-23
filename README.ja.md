@@ -5,7 +5,7 @@
 
 ## 概要
 
-tmux の各ペインに固有色を割り当て、上側の枠線にペイン番号とタイトルを表示する TPM プラグインです。Codex や Claude Code などのエージェントは、現在の作業要約と状態をペインへ送れます。バックグラウンドのペインへアラートを設定し、そのペインを選択したときに自動解除することもできます。主要処理は Rust 製です。
+tmux の各ペインに固有色を割り当て、上側の枠線にペイン番号とタイトルを表示する TPM プラグインです。Claude Code と Codex が端末タイトルに出している作業要約は、追加の設定なしで枠線に表示されます。エージェントの hook やほかのツールからバックグラウンドのペインへアラートを設定でき、そのペインを選択すると自動で解除されます。主要処理は Rust 製です。
 
 ![6つのペインでコーディングエージェントが動作し、各ペインに固有色と作業要約が表示されている。1つのペインには通知が出ている](docs/screenshot.png)
 
@@ -147,14 +147,90 @@ scripts/alert.sh <pane_id> <message> [window-status-style]
 
 ## コーディングエージェント
 
-エージェントや hook から、短い作業要約と状態をペインへ送れます。
+### 作業要約の表示に設定は要らない
+
+Claude Code と Codex は、いま取り組んでいる作業の短い要約を、端末タイトルを変える標準の制御文字列 (`ESC ] 2 ; タイトル BEL`) で出力しています。tmux の中ではこれを tmux がペインの `pane_title` として保持し、このプラグインの `pane-border-format` が枠線に表示します。要約を出すためにエージェント側からこのプラグインを呼ぶ必要はなく、エージェントがタイトルを変えると枠線の表示もすぐ追従します。
+
+| エージェント | タイトルの例 | 出どころ |
+|---|---|---|
+| Claude Code | `✳ tmuxペインの仕組みの解説` | 会話の内容から Claude Code が作るトピック名。`/rename` で手動で付けられ、`CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` で止められる |
+| Codex | `確認する .NET Coreのメモリ管理 \| my-project` | Codex の TUI がスレッドとプロジェクト名から組み立てる。表示する項目は `tui.terminal_title` の設定で選べる |
+
+タイトルがホスト名のままのペインは、どのプログラムもタイトルを付けていないため、代わりに `@pane_beacon_title_fallback` を表示します。
+
+### エージェントの hook からアラートを出す
+
+背景のペインでエージェントが終わったことや、入力を待っていることは、タイトルだけでは分かりません。そのためにはエージェントの hook から `scripts/alert.sh` を呼びます。hook はエージェントのペインの中で実行されるので、`$TMUX_PANE` がそのペインを指します。先頭の条件は、tmux の外でエージェントを動かしたときに呼び出しを飛ばすためのものです。
+
+Claude Code (`~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Claude: 完了' || true"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Claude: 入力待ち' 'fg=magenta,bold' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Codex (`~/.codex/hooks.json`) も同じ形式です。入力待ちには `PermissionRequest` を使います。追加した hook は、Codex で一度 `/hooks` を実行して信頼済みにしてください。
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Codex: 完了' || true"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Codex: 入力待ち' 'fg=magenta,bold' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 要約を自分で送る
+
+端末タイトルを出さないツールは、`update` で要約と状態を送れます。`update` はペインのタイトルを上書きするため、Claude Code や Codex の hook からは呼ばないでください。エージェント自身が付けたタイトルが置き換わります。
 
 ```bash
 ~/.tmux/plugins/tmux-pane-beacon/bin/pane-beacon update "$TMUX_PANE" \
-  --agent codex --status working --summary "Rust への移植を実装中"
+  --agent my-tool --status working --summary "マイグレーションを実行中"
 ```
 
-状態は `working`、`waiting`、`completed`、`error` を指定できます。`waiting`、`completed`、`error` は、対象ペインが表示されていない場合にアラートも設定します。
+状態は `working`、`waiting`、`completed`、`error` を指定できます。`waiting`、`completed`、`error` は、対象ペインが表示されていない場合にアラートも設定します。状態とアラートを消すには `clear <pane_id>` を使います。
 
 ## 注意
 
@@ -162,12 +238,27 @@ scripts/alert.sh <pane_id> <message> [window-status-style]
 
 ## テスト
 
-Rust の単体テスト、隔離した tmux サーバーを使う振る舞いテスト、残ったシェルの静的検査を実行できます。bats-core と shellcheck が必要です。
+Rust の単体テスト、隔離した tmux サーバーを使う振る舞いテスト、シェルの静的検査を実行できます。実行には Rust ツールチェーン (`cargo`、`clippy`、`rustfmt`)、bats-core、shellcheck が必要です。プラグインを使うだけなら、どれも要りません。
 
 ```bash
 make test
 make lint
 ```
+
+CI では、macOS (Intel と Apple Silicon) と Ubuntu でソースからビルドしてテストし、Debian bookworm と trixie ではリリースと同じ静的リンク版でテストしています。
+
+## 類似プロジェクト
+
+tmux でコーディングエージェントの状態を追うプラグインはほかにもあります。主な違いは、状態をどこに表示するかと、どうやって状態を検出するかです。
+
+| プロジェクト | 状態の表示先 | 状態の検出方法 |
+|---|---|---|
+| [tmux-agent-indicator](https://github.com/accessd/tmux-agent-indicator) | ペインの枠の色、ウィンドウタイトルの色、ステータスバーのアイコン | エージェントの hook (インストーラが Claude Code と Codex の設定を書き換える)。hook を出さないエージェントはプロセスから検出する |
+| [tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar) | 専用のサイドバーペイン。状態、プロンプト、ツール呼び出し、Git の状態、worktree を表示する | エージェントの hook、または Claude Code のプラグイン |
+| [tmux-handlr](https://github.com/CRThaze/tmux-handlr) | ステータスラインの点、切り替えメニュー、ダッシュボード、サイドバー、ntfy の通知 | 常駐デーモンが各ペインのタイトルと画面の内容を読む |
+| [tmux-agent-status](https://github.com/RatulMaharaj/tmux-agent-status) | ウィンドウ選択画面とステータスバーのバッジ、ウィンドウ名の変更、デスクトップ通知 | 各ペインの tty 上のプロセスを調べる |
+
+tmux-pane-beacon は範囲を絞っています。常駐デーモンを持たず、プロセスや画面の内容も調べません。要約はエージェントがすでに出している端末タイトルをそのまま使い、hook が必要なのはアラートだけです。その代わりに、ペインごとに固定の色を付けるので、レイアウトを組み替えても目的のペインを見つけやすくなります。
 
 ## ライセンス
 

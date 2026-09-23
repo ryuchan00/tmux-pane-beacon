@@ -4,10 +4,10 @@
 [![release](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/release.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/releases/latest)
 
 Give every tmux pane its own color, and print the pane index and title on the
-top border in that color. Coding agents can publish a concise task summary and
-status to their pane. External tools can also raise an alert on a background
-pane; the alert clears automatically when you select that pane. Core commands
-are implemented in Rust.
+top border in that color. The task summary that Claude Code and Codex already
+put in the terminal title appears on the border with no extra setup. Agent
+hooks and other tools can raise an alert on a background pane; the alert clears
+automatically when you select that pane. Core commands are implemented in Rust.
 
 ![Six stacked panes running coding agents, each with its own border color and task summary. One pane shows an alert instead.](docs/screenshot.png)
 
@@ -147,12 +147,99 @@ An alert is cleared when you select the pane.
 
 ## Coding agents
 
-Agents and hooks can update the pane title with a short summary and publish a
-machine-readable status:
+### Task summaries need no setup
+
+Claude Code and Codex already write a short summary of the current task into
+the terminal title with the standard escape sequence (`ESC ] 2 ; title BEL`).
+Inside tmux, tmux stores that title as the pane's `pane_title`, and this
+plugin's `pane-border-format` prints it. Nothing on the agent side has to call
+this plugin for the summary to appear, and the border follows the title as
+soon as the agent changes it.
+
+| Agent | Example title | Where it comes from |
+|---|---|---|
+| Claude Code | `✳ Explain the tmux pane setup` | A topic Claude Code generates from the conversation. `/rename` sets it by hand, and `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` turns it off |
+| Codex | `Checking memory usage \| my-project` | The Codex TUI builds it from the thread and project name. The `tui.terminal_title` setting chooses the items |
+
+A pane whose title is still the host name has not been given a title by any
+program, so the border shows `@pane_beacon_title_fallback` instead.
+
+### Alerts from agent hooks
+
+The title does not tell you when an agent in a background pane finished or is
+waiting for you. Call `scripts/alert.sh` from the agent's hooks for that. Hooks
+run inside the agent's pane, so `$TMUX_PANE` points at the right pane. The
+guard skips the call when the agent runs outside tmux.
+
+Claude Code (`~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Claude: done' || true"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Claude: waiting' 'fg=magenta,bold' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Codex (`~/.codex/hooks.json`) uses the same shape. Use `PermissionRequest` for
+the waiting alert, and run `/hooks` in Codex once to trust the new hooks:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Codex: done' || true"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/alert.sh \"$TMUX_PANE\" 'Codex: waiting' 'fg=magenta,bold' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Publishing a summary yourself
+
+Tools that do not set the terminal title can publish a summary and a status
+with `update`. It overwrites the pane title, so do not call it from Claude Code
+or Codex hooks; their own titles would be replaced.
 
 ```bash
 ~/.tmux/plugins/tmux-pane-beacon/bin/pane-beacon update "$TMUX_PANE" \
-  --agent codex --status working --summary "Porting the plugin to Rust"
+  --agent my-tool --status working --summary "Running the migration"
 ```
 
 Supported statuses are `working`, `waiting`, `completed`, and `error`.
@@ -167,14 +254,37 @@ apply to the active pane's border.
 
 ## Tests
 
-Rust unit tests and behavior tests run against an isolated tmux server; the
-remaining shell entry points are checked statically. Requires bats-core and
-shellcheck.
+Rust unit tests and behavior tests run against an isolated tmux server, and the
+shell entry points are checked statically. Running them needs a Rust toolchain
+(`cargo`, `clippy`, `rustfmt`), bats-core, and shellcheck. Just using the
+plugin needs none of these.
 
 ```bash
 make test
 make lint
 ```
+
+CI runs the suite on macOS (Intel and Apple Silicon) and Ubuntu from source,
+and on Debian bookworm and trixie with the same static binary the release
+ships.
+
+## Similar projects
+
+Several plugins track coding agents in tmux. They differ mainly in where the
+state is shown and how it is detected.
+
+| Project | Where state is shown | How state is detected |
+|---|---|---|
+| [tmux-agent-indicator](https://github.com/accessd/tmux-agent-indicator) | Pane border color, window title colors, status bar icons | Agent hooks (its installer edits the Claude Code and Codex settings), with process detection as a fallback |
+| [tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar) | A sidebar pane with status, prompts, tool calls, Git state, and worktrees | Agent hooks, or a Claude Code plugin |
+| [tmux-handlr](https://github.com/CRThaze/tmux-handlr) | Status-line dots, a switcher menu, a dashboard, a sidebar, ntfy pushes | A background daemon that reads each pane's title and rendered screen |
+| [tmux-agent-status](https://github.com/RatulMaharaj/tmux-agent-status) | Badges in the window chooser and status bar, window renaming, desktop notifications | Scans the processes on each pane's tty |
+
+tmux-pane-beacon keeps a narrower scope. It runs no daemon and does not
+inspect processes or screen contents. The summary comes from the terminal title
+the agents already set, and hooks are needed only for alerts. What it adds is a
+fixed color per pane, so a pane stays easy to find after you rearrange the
+layout.
 
 ## License
 
