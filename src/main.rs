@@ -69,6 +69,10 @@ fn global_option(name: &str) -> Result<Option<String>, String> {
 
 fn palette() -> Result<Vec<String>, String> {
     let raw = global_option("@pane_beacon_palette")?.unwrap_or_else(|| DEFAULT_PALETTE.into());
+    parse_palette(&raw)
+}
+
+fn parse_palette(raw: &str) -> Result<Vec<String>, String> {
     let colors: Vec<_> = raw.split_whitespace().map(str::to_owned).collect();
     if colors.is_empty() {
         return Err("@pane_beacon_palette must contain at least one color".into());
@@ -189,17 +193,18 @@ fn set_alert(pane: &OsStr, message: &OsStr, style: &OsStr) -> Result<(), String>
     Ok(())
 }
 
-fn update(args: &[OsString]) -> Result<(), String> {
-    let Some(pane) = args.first() else {
-        return Err(
-            "Usage: pane-beacon update <pane_id> [--agent NAME] [--status STATUS] --summary TEXT"
-                .into(),
-        );
-    };
+#[derive(Debug, PartialEq)]
+struct Update {
+    title: String,
+    status: String,
+    summary: String,
+}
+
+fn parse_update(args: &[OsString]) -> Result<Update, String> {
     let mut agent: Option<String> = None;
     let mut status = "working".to_owned();
     let mut summary: Option<String> = None;
-    let mut index = 1;
+    let mut index = 0;
     while index < args.len() {
         let flag = args[index].to_string_lossy();
         let value = args
@@ -226,6 +231,25 @@ fn update(args: &[OsString]) -> Result<(), String> {
         Some(agent) => format!("{agent}: {summary}"),
         None => summary.clone(),
     };
+    Ok(Update {
+        title,
+        status,
+        summary,
+    })
+}
+
+fn update(args: &[OsString]) -> Result<(), String> {
+    let Some(pane) = args.first() else {
+        return Err(
+            "Usage: pane-beacon update <pane_id> [--agent NAME] [--status STATUS] --summary TEXT"
+                .into(),
+        );
+    };
+    let Update {
+        title,
+        status,
+        summary,
+    } = parse_update(&args[1..])?;
     tmux([
         OsStr::new("select-pane"),
         OsStr::new("-t"),
@@ -295,10 +319,70 @@ fn clear(args: &[OsString]) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    fn os_args(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
     #[test]
     fn maps_status_to_window_style() {
         assert_eq!(status_style("completed"), "fg=yellow,bold");
         assert_eq!(status_style("waiting"), "fg=magenta,bold");
         assert_eq!(status_style("error"), "fg=red,bold");
+    }
+
+    #[test]
+    fn default_palette_is_valid() {
+        assert_eq!(parse_palette(DEFAULT_PALETTE).unwrap().len(), 30);
+    }
+
+    #[test]
+    fn palette_rejects_empty_and_named_colors() {
+        assert!(parse_palette("  ").is_err());
+        assert_eq!(
+            parse_palette("196 red").unwrap_err(),
+            "invalid palette color: red"
+        );
+    }
+
+    #[test]
+    fn update_prefixes_title_with_agent() {
+        let update = parse_update(&os_args(&[
+            "--agent",
+            "codex",
+            "--status",
+            "completed",
+            "--summary",
+            "Done",
+        ]))
+        .unwrap();
+        assert_eq!(
+            update,
+            Update {
+                title: "codex: Done".into(),
+                status: "completed".into(),
+                summary: "Done".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn update_defaults_to_working_without_agent() {
+        let update = parse_update(&os_args(&["--summary", "Reading"])).unwrap();
+        assert_eq!(update.title, "Reading");
+        assert_eq!(update.status, "working");
+    }
+
+    #[test]
+    fn update_rejects_bad_arguments() {
+        assert_eq!(
+            parse_update(&os_args(&["--agent", "codex"])).unwrap_err(),
+            "--summary is required"
+        );
+        assert_eq!(
+            parse_update(&os_args(&["--summary"])).unwrap_err(),
+            "missing value for --summary"
+        );
+        assert!(parse_update(&os_args(&["--summary", "x", "--status", "done"])).is_err());
+        assert!(parse_update(&os_args(&["--color", "red"])).is_err());
     }
 }

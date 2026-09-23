@@ -21,10 +21,12 @@ until you select the pane.
 
 - tmux 3.0 or later (the plugin uses per-pane options, `set-option -p`, and
   indexed hooks)
-- bash and curl (the TPM entry point and the binary download)
+- bash, and curl or wget (the TPM entry point and the binary download)
 - Rust 1.85 or later, only if you build from source instead of using a release
 
-Verified on tmux 3.7b (macOS) and tmux 3.2a (Ubuntu on WSL).
+CI runs the test suite on macOS (Intel and Apple Silicon), Ubuntu, and Debian
+bookworm and trixie (with the released static binary). It has also been used
+day to day on tmux 3.7b (macOS) and tmux 3.2a (Ubuntu on WSL).
 
 ## Install
 
@@ -50,6 +52,10 @@ tmux source-file ~/.tmux.conf
 ```
 
 `PANE_BEACON_BIN=/path/to/pane-beacon` overrides the lookup entirely.
+
+After `prefix + U` updates the plugin, it downloads a new binary whenever the
+one in `bin/` does not match the version in `Cargo.toml`. If that download
+fails, it keeps using the old binary and prints a warning.
 
 TPM follows the default branch. To pin a version instead, append the tag:
 

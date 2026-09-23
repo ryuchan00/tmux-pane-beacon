@@ -34,7 +34,7 @@ load test_helper
 @test "agent update sets title and status" {
   pane_id="$(tmux split-window -d -P -F '#{pane_id}')"
 
-  run "$PROJECT_ROOT/target/release/pane-beacon" update "$pane_id" \
+  run "$PANE_BEACON_TEST_BIN" update "$pane_id" \
     --agent codex --status working --summary "Porting to Rust"
 
   [ "$status" -eq 0 ]
@@ -45,7 +45,7 @@ load test_helper
 @test "completed agent update raises an alert" {
   pane_id="$(tmux split-window -d -P -F '#{pane_id}')"
 
-  run "$PROJECT_ROOT/target/release/pane-beacon" update "$pane_id" \
+  run "$PANE_BEACON_TEST_BIN" update "$pane_id" \
     --agent claude --status completed --summary "Review finished"
 
   [ "$status" -eq 0 ]

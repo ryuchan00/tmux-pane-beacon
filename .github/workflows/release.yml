@@ -27,6 +27,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # プラグインは Cargo.toml の version からタグ名を組み立てて取得するため、
+      # ずれたタグで公開すると誰もダウンロードできないリリースになる
+      - name: Check tag matches Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          test "v$version" = "$GITHUB_REF_NAME" || {
+            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
+            exit 1
+          }
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -38,6 +48,9 @@ jobs:
         run: |
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/pane-beacon" "dist/pane-beacon-${{ matrix.target }}"
+      # 各ランナーはターゲットと同じ OS/CPU なので、公開前にそのまま実行できる
+      - name: Smoke test binary
+        run: dist/pane-beacon-${{ matrix.target }} --version
       - uses: actions/upload-artifact@v4
         with:
           name: pane-beacon-${{ matrix.target }}

@@ -9,17 +9,80 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+      - run: make lint
+
+  # ソースからビルドしてテストする。macOS は Intel と Arm の両方で確かめる
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux bats
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install tmux bats-core
+      - name: tmux version
+        run: tmux -V
+      - run: make test
+
+  # リリースと同じ musl の静的リンク版を作り、Debian の tmux と bats で動かす
+  build-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pane-beacon-musl
+          path: target/x86_64-unknown-linux-musl/release/pane-beacon
+          if-no-files-found: error
+
+  debian:
+    needs: build-musl
+    strategy:
+      fail-fast: false
+      matrix:
+        release: [bookworm, trixie]
+    runs-on: ubuntu-latest
+    container: debian:${{ matrix.release }}
+    env:
+      LANG: C.UTF-8
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y tmux bats shellcheck
+          apt-get update
+          apt-get install -y --no-install-recommends tmux bats
+      - uses: actions/download-artifact@v4
+        with:
+          name: pane-beacon-musl
+          path: dist
       - name: tmux version
         run: tmux -V
-      - name: Lint
-        run: make lint
       - name: Test
-        run: make test
+        run: |
+          chmod +x dist/pane-beacon
+          PANE_BEACON_BIN="$PWD/dist/pane-beacon" bats tests

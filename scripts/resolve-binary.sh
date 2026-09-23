@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # pane-beacon バイナリの在りかを解決する。無ければ GitHub Releases から取得する。
 # pane-beacon.tmux と scripts/alert.sh の両方から source される。
-# 解決順: $PANE_BEACON_BIN → bin/pane-beacon (Releases から取得したもの)
+# 解決順: $PANE_BEACON_BIN → bin/pane-beacon (Cargo.toml と同じ版のとき)
 #         → target/release/pane-beacon (開発中の cargo build 成果物) → ダウンロード
+#         → bin/pane-beacon (版が古くても、取得に失敗したときの予備として使う)
 
 PANE_BEACON_REPO="${PANE_BEACON_REPO:-ryuchan00/tmux-pane-beacon}"
 
@@ -28,6 +29,19 @@ pane_beacon_version() {
   sed -n 's/^version = "\(.*\)"/\1/p' "$dir/Cargo.toml" | head -1
 }
 
+# curl が無い最小構成の Debian でも取得できるよう wget にフォールバックする
+pane_beacon_fetch() {
+  local url="$1" dest="$2"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --connect-timeout 10 --retry 2 "$url" -o "$dest"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -T 10 -t 3 -O "$dest" "$url"
+  else
+    return 127
+  fi
+}
+
 pane_beacon_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | cut -d' ' -f1
@@ -49,29 +63,30 @@ pane_beacon_download() {
   version="$(pane_beacon_version "$dir")"
   [ -n "$version" ] || return 1
 
-  command -v curl >/dev/null 2>&1 || {
-    printf 'tmux-pane-beacon: curl not found; build from source with make build\n' >&2
+  if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    printf 'tmux-pane-beacon: neither curl nor wget found; build from source with make build\n' >&2
     return 1
-  }
+  fi
 
   base="https://github.com/$PANE_BEACON_REPO/releases/download/v$version"
   tmp="$(mktemp -d)" || return 1
 
   target=''
   for candidate in $targets; do
-    if curl -fsSL "$base/pane-beacon-$candidate" -o "$tmp/pane-beacon"; then
+    if pane_beacon_fetch "$base/pane-beacon-$candidate" "$tmp/pane-beacon" 2>/dev/null; then
       target="$candidate"
       break
     fi
   done
   if [ -z "$target" ]; then
-    printf 'tmux-pane-beacon: failed to download a binary from %s\n' "$base" >&2
+    # main が次の版へ進み、リリースのビルドがまだ終わっていない間もここに来る
+    printf 'tmux-pane-beacon: failed to download a binary for v%s from %s (the release may not be published yet)\n' "$version" "$base" >&2
     rm -rf "$tmp"
     return 1
   fi
 
   # チェックサムは取得できたときだけ検証する。ネットワーク経由の取り違えを弾くのが目的
-  if curl -fsSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS" 2>/dev/null; then
+  if pane_beacon_fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS" 2>/dev/null; then
     expected="$(awk -v name="pane-beacon-$target" '$2 == name || $2 == "*"name {print $1}' "$tmp/SHA256SUMS" | head -1)"
     actual="$(pane_beacon_sha256 "$tmp/pane-beacon")" || actual=''
     if [ -n "$expected" ] && [ -n "$actual" ] && [ "$expected" != "$actual" ]; then
@@ -98,22 +113,34 @@ pane_beacon_download() {
 # このファイル内には参照がない
 # shellcheck disable=SC2034
 pane_beacon_resolve() {
-  local dir="$1" candidate
+  local dir="$1" bin="$1/bin/pane-beacon" version
 
   if [ -n "${PANE_BEACON_BIN:-}" ] && [ -x "${PANE_BEACON_BIN}" ]; then
     PANE_BEACON_BINARY="$PANE_BEACON_BIN"
     return 0
   fi
 
-  for candidate in "$dir/bin/pane-beacon" "$dir/target/release/pane-beacon"; do
-    if [ -x "$candidate" ]; then
-      PANE_BEACON_BINARY="$candidate"
-      return 0
-    fi
-  done
+  # TPM の更新 (prefix + U) はスクリプトだけを新しくするため、取得済みの
+  # バイナリが Cargo.toml の版と一致するときだけそのまま使う
+  version="$(pane_beacon_version "$dir")"
+  if [ -x "$bin" ] && [ "$("$bin" --version 2>/dev/null)" = "pane-beacon $version" ]; then
+    PANE_BEACON_BINARY="$bin"
+    return 0
+  fi
 
-  if pane_beacon_download "$dir" "$dir/bin/pane-beacon"; then
-    PANE_BEACON_BINARY="$dir/bin/pane-beacon"
+  if [ -x "$dir/target/release/pane-beacon" ]; then
+    PANE_BEACON_BINARY="$dir/target/release/pane-beacon"
+    return 0
+  fi
+
+  if pane_beacon_download "$dir" "$bin"; then
+    PANE_BEACON_BINARY="$bin"
+    return 0
+  fi
+
+  if [ -x "$bin" ] && "$bin" --version >/dev/null 2>&1; then
+    printf 'tmux-pane-beacon: using %s, which does not match v%s\n' "$("$bin" --version)" "$version" >&2
+    PANE_BEACON_BINARY="$bin"
     return 0
   fi
 

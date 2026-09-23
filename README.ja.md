@@ -16,10 +16,10 @@ English version: [README.md](README.md)
 ## 要件
 
 - tmux 3.0 以降 (ペイン単位オプション `set-option -p` と hook の配列指定を使うため)
-- bash と curl (TPM の入口とバイナリの取得に使う)
+- bash と、curl または wget (TPM の入口とバイナリの取得に使う)
 - Rust 1.85 以降 (リリースを使わず自分でビルドする場合のみ)
 
-動作確認は tmux 3.7b (macOS) と tmux 3.2a (Ubuntu on WSL) で行っています。
+CI では macOS (Intel と Apple Silicon)、Ubuntu、Debian bookworm と trixie (リリースと同じ静的リンク版) でテストを実行しています。日常の利用では tmux 3.7b (macOS) と tmux 3.2a (Ubuntu on WSL) で動かしています。
 
 ## 導入
 
@@ -40,6 +40,8 @@ tmux source-file ~/.tmux.conf
 ```
 
 `PANE_BEACON_BIN=/path/to/pane-beacon` を設定すると、この探索を完全に上書きできます。
+
+`prefix + U` でプラグインを更新すると、取得済みのバイナリが `Cargo.toml` の版と一致しない場合に新しい版を取得し直します。取得に失敗したときは、古いバイナリを警告付きで使い続けます。
 
 TPM はデフォルトブランチを追跡します。バージョンを固定したい場合はタグを付けてください。
 
