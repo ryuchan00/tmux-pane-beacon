@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # pane-beacon バイナリの在りかを解決する。無ければ GitHub Releases から取得する。
 # pane-beacon.tmux と scripts/alert.sh の両方から source される。
-# 解決順: $PANE_BEACON_BIN → bin/pane-beacon (Cargo.toml と同じ版のとき)
-#         → target/release/pane-beacon (開発中の cargo build 成果物) → ダウンロード
-#         → bin/pane-beacon (版が古くても、取得に失敗したときの予備として使う)
+# 解決順: $PANE_BEACON_BIN → bin/pane-beacon → target/release/pane-beacon
+#         (開発中の cargo build 成果物) → ダウンロード。bin と target は
+#         Cargo.toml と同じ版のときだけ使い、版が古いものは取得に失敗したときの
+#         予備に回す
 
 PANE_BEACON_REPO="${PANE_BEACON_REPO:-ryuchan00/tmux-pane-beacon}"
 
@@ -113,36 +114,36 @@ pane_beacon_download() {
 # このファイル内には参照がない
 # shellcheck disable=SC2034
 pane_beacon_resolve() {
-  local dir="$1" bin="$1/bin/pane-beacon" version
+  local dir="$1" bin="$1/bin/pane-beacon" version candidate
 
   if [ -n "${PANE_BEACON_BIN:-}" ] && [ -x "${PANE_BEACON_BIN}" ]; then
     PANE_BEACON_BINARY="$PANE_BEACON_BIN"
     return 0
   fi
 
-  # TPM の更新 (prefix + U) はスクリプトだけを新しくするため、取得済みの
-  # バイナリが Cargo.toml の版と一致するときだけそのまま使う
+  # TPM の更新 (prefix + U) はスクリプトだけを新しくするため、手元のバイナリは
+  # Cargo.toml の版と一致するときだけ使う。以前 make test などでビルドした
+  # target/release の成果物も、版がずれていれば同じく古いものとして扱う
   version="$(pane_beacon_version "$dir")"
-  if [ -x "$bin" ] && [ "$("$bin" --version 2>/dev/null)" = "pane-beacon $version" ]; then
-    PANE_BEACON_BINARY="$bin"
-    return 0
-  fi
-
-  if [ -x "$dir/target/release/pane-beacon" ]; then
-    PANE_BEACON_BINARY="$dir/target/release/pane-beacon"
-    return 0
-  fi
+  for candidate in "$bin" "$dir/target/release/pane-beacon"; do
+    if [ -x "$candidate" ] && [ "$("$candidate" --version 2>/dev/null)" = "pane-beacon $version" ]; then
+      PANE_BEACON_BINARY="$candidate"
+      return 0
+    fi
+  done
 
   if pane_beacon_download "$dir" "$bin"; then
     PANE_BEACON_BINARY="$bin"
     return 0
   fi
 
-  if [ -x "$bin" ] && "$bin" --version >/dev/null 2>&1; then
-    printf 'tmux-pane-beacon: using %s, which does not match v%s\n' "$("$bin" --version)" "$version" >&2
-    PANE_BEACON_BINARY="$bin"
-    return 0
-  fi
+  for candidate in "$bin" "$dir/target/release/pane-beacon"; do
+    if [ -x "$candidate" ] && "$candidate" --version >/dev/null 2>&1; then
+      printf 'tmux-pane-beacon: using %s, which does not match v%s\n' "$("$candidate" --version)" "$version" >&2
+      PANE_BEACON_BINARY="$candidate"
+      return 0
+    fi
+  done
 
   return 1
 }

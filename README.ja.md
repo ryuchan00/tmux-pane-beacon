@@ -41,7 +41,7 @@ tmux source-file ~/.tmux.conf
 
 `PANE_BEACON_BIN=/path/to/pane-beacon` を設定すると、この探索を完全に上書きできます。
 
-`prefix + U` でプラグインを更新すると、取得済みのバイナリが `Cargo.toml` の版と一致しない場合に新しい版を取得し直します。取得に失敗したときは、古いバイナリを警告付きで使い続けます。
+`prefix + U` でプラグインを更新すると、取得済みの `bin/pane-beacon` も、手元でビルドした `target/release/pane-beacon` も `Cargo.toml` の版と一致しない場合に、新しい版を取得し直します。取得に失敗したときは、古いバイナリを警告付きで使い続けます。
 
 TPM はデフォルトブランチを追跡します。バージョンを固定したい場合はタグを付けてください。
 

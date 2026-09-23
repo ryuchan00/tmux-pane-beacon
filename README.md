@@ -53,8 +53,9 @@ tmux source-file ~/.tmux.conf
 
 `PANE_BEACON_BIN=/path/to/pane-beacon` overrides the lookup entirely.
 
-After `prefix + U` updates the plugin, it downloads a new binary whenever the
-one in `bin/` does not match the version in `Cargo.toml`. If that download
+After `prefix + U` updates the plugin, it downloads a new binary whenever
+neither `bin/pane-beacon` nor a local `target/release/pane-beacon` build matches
+the version in `Cargo.toml`. If that download
 fails, it keeps using the old binary and prints a warning.
 
 TPM follows the default branch. To pin a version instead, append the tag:

@@ -11,9 +11,10 @@ setup() {
   mkdir -p "$plugin/bin" "$plugin/target/release" "$BATS_TEST_TMPDIR/path"
   printf 'version = "1.2.3"\n' > "$plugin/Cargo.toml"
 
-  # curl と wget をどちらも失敗させ、ダウンロードできない状況を作る
+  # curl と wget をどちらも失敗させ、ダウンロードできない状況を作る。
+  # 取得を試みたかどうかは attempted ファイルの有無で確かめる
   for tool in curl wget; do
-    printf '#!/bin/sh\nexit 22\n' > "$BATS_TEST_TMPDIR/path/$tool"
+    printf '#!/bin/sh\ntouch "%s/attempted"\nexit 22\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/path/$tool"
     chmod +x "$BATS_TEST_TMPDIR/path/$tool"
   done
   PATH="$BATS_TEST_TMPDIR/path:$PATH"
@@ -45,6 +46,23 @@ fake_binary() {
 
   pane_beacon_resolve "$plugin"
   [ "$PANE_BEACON_BINARY" = "$plugin/target/release/pane-beacon" ]
+}
+
+@test "tries to download instead of using a stale local build" {
+  fake_binary "$plugin/target/release/pane-beacon" 1.0.0
+
+  run pane_beacon_resolve "$plugin"
+  [ -e "$BATS_TEST_TMPDIR/attempted" ]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pane-beacon 1.0.0, which does not match v1.2.3"* ]]
+}
+
+@test "does not download when a local build matches" {
+  fake_binary "$plugin/target/release/pane-beacon" 1.2.3
+
+  pane_beacon_resolve "$plugin"
+  [ "$PANE_BEACON_BINARY" = "$plugin/target/release/pane-beacon" ]
+  [ ! -e "$BATS_TEST_TMPDIR/attempted" ]
 }
 
 @test "keeps a stale binary when the download fails" {
