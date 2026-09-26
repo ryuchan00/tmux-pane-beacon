@@ -109,7 +109,7 @@ tmux show-hooks -g | grep pane-beacon
 
 | Option | Default | Description |
 |---|---|---|
-| `@pane_beacon_palette` | `196 46 21 226 201 51 208 118 27 199 214 82 39 220 165 50 202 154 33 129 190 48 57 93 197 45 213 159 87 228` | 256-color numbers assigned to panes in a cycle |
+| `@pane_beacon_palette` | `196 46 203 226 201 51 208 118 215 199 214 82 192 220 165 50 202 154 223 129 190 48 210 93 197 45 213 159 87 228` | 256-color numbers assigned to panes in a cycle |
 | `@pane_beacon_title_fallback` | `#{pane_current_command}` | Format shown when the pane title is still the host name |
 | `@pane_beacon_title_max` | `60` | Maximum title width; longer titles are truncated with `…` |
 | `@pane_beacon_alert_icon` | `🔔` | Symbol printed in front of an alert |

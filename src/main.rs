@@ -2,7 +2,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::process::{Command, ExitCode};
 
-const DEFAULT_PALETTE: &str = "196 46 21 226 201 51 208 118 27 199 214 82 39 220 165 50 202 154 33 129 190 48 57 93 197 45 213 159 87 228";
+const DEFAULT_PALETTE: &str = "196 46 203 226 201 51 208 118 215 199 214 82 192 220 165 50 202 154 223 129 190 48 210 93 197 45 213 159 87 228";
 
 fn main() -> ExitCode {
     match run(env::args_os().skip(1).collect()) {
