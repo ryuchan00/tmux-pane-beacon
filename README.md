@@ -3,20 +3,17 @@
 [![CI](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/ci.yml)
 [![release](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/release.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/releases/latest)
 
-Give every tmux pane its own color, and print the pane index and title on the
-top border in that color. The task summary that Claude Code and Codex already
-put in the terminal title appears on the border with no extra setup. With a few
-agent hooks, the border also shows whether the agent is running or waiting for
-you, and a background pane gets an alert when its agent finishes; the alert
-clears automatically when you select that pane. Core commands are implemented in Rust.
+English | [日本語](README.ja.md)
 
-![Six stacked panes running coding agents, each with its own border color and task summary. One pane shows an alert instead.](docs/screenshot.png)
+Give each tmux pane its own color and show its number and terminal title on the top border. Find the right terminal or coding-agent session when several panes are open.
 
-Six panes, each running a coding agent. Every pane has its own color, and its
-border shows the task summary that agent published, so you can tell at a glance
-which session is doing what. Pane 2 has an alert on it, so it shows the alert
-instead of its summary. Completion, waiting, and error alerts remain visible
-until you select the pane.
+- Pane colors stay with their panes when you rearrange the layout.
+- Terminal titles set by your applications appear on the border.
+- Optional agent hooks add working/waiting indicators and completion alerts.
+
+![Colored pane borders with task titles; pane 2 shows an alert](docs/screenshot.png)
+
+[Install](#install) · [Agent status](#agent-status-and-notifications) · [Options](#options) · [Troubleshooting](#troubleshooting)
 
 ## Requirements
 
@@ -32,16 +29,37 @@ day to day on tmux 3.7b (macOS) and tmux 3.2a (Ubuntu on WSL).
 ## Install
 
 With [TPM](https://github.com/tmux-plugins/tpm), add this line to `~/.tmux.conf`
-and press `prefix + I`:
+before the line that starts TPM:
 
 ```tmux
 set -g @plugin 'ryuchan00/tmux-pane-beacon'
+
+# Keep your existing TPM startup line at the end
+run '~/.tmux/plugins/tpm/tpm'
 ```
 
-That is all: on first load the plugin downloads the prebuilt binary for your
+Save the file, run the following inside tmux, then press `prefix + I` (uppercase I). The default tmux prefix is `Ctrl+b`.
+
+```bash
+tmux source-file ~/.tmux.conf
+```
+
+On first load the plugin downloads the prebuilt binary for your
 platform from the matching GitHub release, verifies it against the published
 `SHA256SUMS`, and stores it in `bin/pane-beacon` inside the plugin directory.
 Releases cover Intel and Arm Linux and macOS.
+
+### Check the display
+
+Split a tmux pane: each pane should have a colored number and title along its top border. To try a title from your shell, run:
+
+```bash
+printf '\033]2;beacon demo\007'
+```
+
+Your shell or application may replace it when it next updates the terminal title.
+
+### Build from source
 
 If your platform has no prebuilt binary, or you prefer building yourself,
 run the build once and reload tmux:
@@ -54,6 +72,8 @@ tmux source-file ~/.tmux.conf
 
 `PANE_BEACON_BIN=/path/to/pane-beacon` overrides the lookup entirely.
 
+### Update or pin a version
+
 After `prefix + U` updates the plugin, it downloads a new binary whenever
 neither `bin/pane-beacon` nor a local `target/release/pane-beacon` build matches
 the version in `Cargo.toml`. If that download
@@ -62,8 +82,10 @@ fails, it keeps using the old binary and prints a warning.
 TPM follows the default branch. To pin a version instead, append the tag:
 
 ```tmux
-set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.3.0'
+set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.3.1'
 ```
+
+### Local development
 
 To hack on the plugin locally, symlink your working copy into TPM's plugin
 directory. TPM treats an existing directory as already installed, so the
@@ -75,35 +97,19 @@ ln -s /path/to/tmux-pane-beacon ~/.tmux/plugins/tmux-pane-beacon
 
 Reload your tmux configuration after changing any option.
 
-## How tmux loads the plugin
+## Agent status and notifications
 
-The `@plugin` option only registers the repository with TPM. The final TPM line
-in `tmux.conf` finds each registered plugin and executes its `*.tmux` entry
-point, so it must appear after all `@plugin` options:
+Pane colors and terminal titles appear as soon as the plugin loads. Running and waiting indicators and completion alerts require hooks in your agent's settings.
 
-```tmux
-set -g @plugin 'ryuchan00/tmux-pane-beacon'
-run '~/.tmux/plugins/tpm/tpm'
-```
+| Display | Meaning |
+|---|---|
+| Each pane's border color | Identifies the pane; does not indicate task status |
+| Green `●` | Working (`working`) |
+| Magenta `●` | Waiting for input or approval (`waiting`) |
+| Red `●` | Error (`error`) |
+| `🔔` and a message | An unread alert; selecting the pane clears it |
 
-TPM executes `pane-beacon.tmux`. That entry point configures the border format,
-registers tmux hooks, and runs `pane-beacon init` to color existing panes. It
-does not start a daemon. Later, pane and window events invoke the Rust binary
-through the registered hooks.
-
-`prefix + I` clones the repository into `~/.tmux/plugins/tmux-pane-beacon`. The
-native binary is not committed, so the entry point resolves it on first load, in
-this order: `$PANE_BEACON_BIN`, `bin/pane-beacon` (downloaded from a release),
-`target/release/pane-beacon` (your own build), and finally a download from the
-release matching the version in `Cargo.toml`. A downloaded binary is checked
-against `SHA256SUMS` and run once with `--version` before it is kept, so a
-binary built against a newer libc is rejected rather than stored.
-
-Inspect the active hooks with:
-
-```bash
-tmux show-hooks -g | grep pane-beacon
-```
+See the [agent integration guide](docs/agents.md) for Claude Code and Codex hook examples, status limitations, and integration with your own tools.
 
 ## Options
 
@@ -149,166 +155,14 @@ With a custom window style:
 
 An alert is cleared when you select the pane.
 
-## Coding agents
+## Troubleshooting
 
-### Task summaries need no setup
+- **No border labels:** check that TPM runs at the end of `~/.tmux.conf`, then reload with `tmux source-file ~/.tmux.conf`.
+- **Binary download fails:** check access to GitHub. If Rust is available, run `make build` in the plugin directory and reload tmux.
+- **No working/waiting indicator:** configure hooks using the [agent integration guide](docs/agents.md). Terminal titles alone do not update agent status.
+- **No completion alert:** the currently active pane is not alerted. Select another pane before trying the notification.
 
-Claude Code and Codex already write a short summary of the current task into
-the terminal title with the standard escape sequence (`ESC ] 2 ; title BEL`).
-Inside tmux, tmux stores that title as the pane's `pane_title`, and this
-plugin's `pane-border-format` prints it. Nothing on the agent side has to call
-this plugin for the summary to appear, and the border follows the title as
-soon as the agent changes it.
-
-| Agent | Example title | Where it comes from |
-|---|---|---|
-| Claude Code | `✳ Explain the tmux pane setup` | A topic Claude Code generates from the conversation. `/rename` sets it by hand, and `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` turns it off |
-| Codex | `Checking memory usage \| my-project` | The Codex TUI builds it from the thread and project name. The `tui.terminal_title` setting chooses the items |
-
-A pane whose title is still the host name has not been given a title by any
-program, so the border shows `@pane_beacon_title_fallback` instead.
-
-### Running state and alerts from agent hooks
-
-The title does not tell you whether an agent is still running, or when an
-agent in a background pane finished or is waiting for you. Send that from the
-agent's hooks with `update`. Without `--summary`, `update` leaves the title the
-agent set alone and only records the state.
-
-| Hook | State | Border | Alert on a background pane |
-|---|---|---|---|
-| `UserPromptSubmit`, `PostToolUse` | `working` | green `●` | no |
-| `PermissionRequest` | `waiting` | magenta `●` | yes |
-| `Stop` | `completed` | no icon | yes |
-
-`PostToolUse` puts the pane back to `working` after you approve a permission
-request, and removes the waiting alert that is no longer true. Alerts raised by
-other tools stay. Hooks run inside the agent's pane, so `$TMUX_PANE` points at the right
-pane, and `scripts/pane-beacon.sh` finds the binary wherever it is installed.
-The guard skips the call when the agent runs outside tmux.
-
-Claude Code (`~/.claude/settings.json`):
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status working || true"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status working || true"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status waiting || true"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status completed || true"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Codex (`~/.codex/hooks.json`) uses the same shape. Run `/hooks` in Codex once
-to trust the new hooks:
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status working || true"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status working || true"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status waiting || true"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status completed || true"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-The icon is shown only while the pane still runs the command it ran when the
-state was sent. If the agent exits without a `Stop` hook, the icon disappears
-once the pane is back at the shell. An interrupted turn (Esc in Claude Code)
-fires no hook, so the pane keeps showing `working` until the next prompt.
-
-### Publishing a summary yourself
-
-Tools that do not set the terminal title can also publish a summary with
-`--summary`. This overwrites the pane title, so leave it out in Claude Code and
-Codex hooks; their own titles would be replaced.
-
-```bash
-~/.tmux/plugins/tmux-pane-beacon/bin/pane-beacon update "$TMUX_PANE" \
-  --agent my-tool --status working --summary "Running the migration"
-```
-
-Supported statuses are `working`, `waiting`, `completed`, and `error`.
-`waiting`, `completed`, and `error` also raise an alert when the pane is not
-currently visible. Use `clear <pane_id>` to remove its status and alert.
+See [how the plugin loads](docs/how-it-works.md) for the loading order and registered hooks.
 
 ## Note
 
@@ -354,5 +208,3 @@ layout.
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-日本語版は [README.ja.md](README.ja.md) を参照してください。

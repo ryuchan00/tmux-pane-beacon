@@ -3,15 +3,17 @@
 [![CI](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/ci.yml)
 [![release](https://github.com/ryuchan00/tmux-pane-beacon/actions/workflows/release.yml/badge.svg)](https://github.com/ryuchan00/tmux-pane-beacon/releases/latest)
 
-## 概要
+[English](README.md) | 日本語
 
-tmux の各ペインに固有色を割り当て、上側の枠線にペイン番号とタイトルを表示する TPM プラグインです。Claude Code と Codex が端末タイトルに出している作業要約は、追加の設定なしで枠線に表示されます。エージェントの hook をいくつか設定すると、エージェントが実行中か入力待ちかも枠線に表示し、バックグラウンドのペインで作業が終わったときにはアラートを出します。アラートはそのペインを選択すると自動で解除されます。主要処理は Rust 製です。
+tmux のペインごとに色を付け、上側の枠にペイン番号と端末タイトルを表示するプラグインです。複数のターミナルやコーディングエージェントを並べたときに、目的のペインを見分けられます。
 
-![6つのペインでコーディングエージェントが動作し、各ペインに固有色と作業要約が表示されている。1つのペインには通知が出ている](docs/screenshot.png)
+- ペインを識別する色は、レイアウトを変えても維持されます。
+- アプリが設定した端末タイトルを枠に表示します。
+- エージェントの hook を設定すると、実行中・入力待ちの記号や完了通知も表示できます。
 
-6つのペインでそれぞれコーディングエージェントを動かしている状態です。ペインごとに色が違い、枠にはそのエージェントが送った作業要約が出るため、どのセッションが何をしているかが一目で分かります。ペイン2には通知が立っているため、要約の代わりに通知を表示しています。完了、入力待ち、エラーの通知は、そのペインを選択するまで残ります。
+![ペインごとに異なる枠色と作業タイトルを表示。ペイン2には通知を表示](docs/screenshot.png)
 
-English version: [README.md](README.md)
+[導入](#導入) · [状態表示と通知](#エージェントの実行状態と通知) · [設定一覧](#オプション) · [困ったとき](#困ったとき)
 
 ## 要件
 
@@ -23,13 +25,34 @@ CI では macOS (Intel と Apple Silicon)、Ubuntu、Debian bookworm と trixie 
 
 ## 導入
 
-TPM の設定に次の行を追加し、`prefix + I` でプラグインを読み込みます。
+[TPM](https://github.com/tmux-plugins/tpm) を導入済みの環境で、`~/.tmux.conf` の TPM 実行行より前にプラグインを追加します。
 
 ```tmux
 set -g @plugin 'ryuchan00/tmux-pane-beacon'
+
+# 既存の TPM 実行行を末尾に置く
+run '~/.tmux/plugins/tpm/tpm'
 ```
 
-これだけで動きます。初回読み込み時に、実行中のプラットフォーム向けのビルド済みバイナリを対応するGitHubリリースから取得し、公開されている `SHA256SUMS` と突き合わせたうえで、プラグインディレクトリの `bin/pane-beacon` に置きます。リリースは Intel/Arm の Linux と macOS を対象にしています。
+設定を保存し、tmux 内で次を実行してから `prefix + I`（大文字の I）を押します。`prefix` は tmux の操作開始キーで、既定では `Ctrl+b` です。
+
+```bash
+tmux source-file ~/.tmux.conf
+```
+
+初回読み込み時に、実行中のプラットフォーム向けのビルド済みバイナリを対応するGitHubリリースから取得し、公開されている `SHA256SUMS` と突き合わせたうえで、プラグインディレクトリの `bin/pane-beacon` に置きます。リリースは Intel/Arm の Linux と macOS を対象にしています。
+
+### 表示を確認する
+
+tmux 内でペインを分割すると、各ペインの上側に色付きの番号とタイトルが表示されます。タイトルの表示だけを試すには、シェルで次を実行します。
+
+```bash
+printf '\033]2;beacon demo\007'
+```
+
+シェルやアプリが次のタイトルを送ると、その内容に置き換わります。
+
+### ソースからビルドする
 
 ビルド済みバイナリが無いプラットフォームの場合、または自分でビルドしたい場合は、次を一度実行してから tmux を再読込してください。
 
@@ -41,13 +64,17 @@ tmux source-file ~/.tmux.conf
 
 `PANE_BEACON_BIN=/path/to/pane-beacon` を設定すると、この探索を完全に上書きできます。
 
+### 更新とバージョン固定
+
 `prefix + U` でプラグインを更新すると、取得済みの `bin/pane-beacon` も、手元でビルドした `target/release/pane-beacon` も `Cargo.toml` の版と一致しない場合に、新しい版を取得し直します。取得に失敗したときは、古いバイナリを警告付きで使い続けます。
 
 TPM はデフォルトブランチを追跡します。バージョンを固定したい場合はタグを付けてください。
 
 ```tmux
-set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.3.0'
+set -g @plugin 'ryuchan00/tmux-pane-beacon#v0.3.1'
 ```
+
+### ローカル開発
 
 ローカル開発では、このディレクトリを TPM のプラグインディレクトリへ symlink します。TPM は既存のディレクトリを導入済みとして扱うので、上の `@plugin` 行はそのままで動きます。
 
@@ -57,52 +84,19 @@ ln -s /path/to/tmux-pane-beacon ~/.tmux/plugins/tmux-pane-beacon
 
 設定を変更した場合は tmux の設定ファイルを再読込してください。
 
-## tmux がプラグインを読み込む仕組み
+## エージェントの実行状態と通知
 
-`@plugin` の設定だけではプラグインは実行されません。`tmux.conf` の末尾でTPMを実行すると、TPMが登録済みプラグインを順番に読み込みます。このため、TPMを実行する行は `@plugin` の設定より後に置きます。
+ペインの色と端末タイトルは、導入直後から表示されます。実行中・承認待ちの記号や完了通知を表示するには、エージェント側の hook 設定が必要です。
 
-```tmux
-set -g @plugin 'ryuchan00/tmux-pane-beacon'
-
-# @pluginをすべて設定した後、ファイルの末尾でTPMを実行する
-run '~/.tmux/plugins/tpm/tpm'
-```
-
-読み込み時の処理は次の順序です。
-
-```mermaid
-flowchart TD
-    A[tmuxが ~/.tmux.conf を読む] --> B[@plugin にリポジトリ名を登録]
-    B --> C[tmux.conf末尾でTPMを実行]
-    C --> D[TPMがプラグイン内の *.tmux を実行]
-    D --> E[pane-beacon.tmuxが枠表示とhookを設定]
-    E --> F[Rustバイナリの init が全ペインへ色を割り当てる]
-    F --> G[以後はtmuxのhookがRustバイナリを呼ぶ]
-```
-
-TPMの `prefix + I` は、GitHubのリポジトリを `~/.tmux/plugins/tmux-pane-beacon` へ取得します。Rustバイナリはソースに含まれないため、`pane-beacon.tmux` が初回読み込み時に次の順で解決します。`$PANE_BEACON_BIN`、`bin/pane-beacon` (リリースから取得済みのもの)、`target/release/pane-beacon` (自分でビルドしたもの)、最後に `Cargo.toml` のversionに対応するリリースからのダウンロードです。ダウンロードしたバイナリは `SHA256SUMS` と突き合わせ、`--version` で起動できることを確認してから配置します。新しいlibcに対してビルドされたバイナリは、ここで弾かれて保存されません。
-
-`pane-beacon.tmux` は常駐プロセスを起動しません。読み込み時に `pane-border-format` とtmuxのhookを設定し、次のイベントが発生したときだけ Rust バイナリを実行します。
-
-| イベント | Rust CLIの処理 |
+| 表示 | 意味 |
 |---|---|
-| プラグイン読込 | `init` で既存の全ペインへ色を割り当てる |
-| ペイン分割 | `assign-color <pane_id>` で新しいペインへ色を割り当てる |
-| ウィンドウ作成 | `assign-color <pane_id>` で最初のペインへ色を割り当てる |
-| エージェントの状態変更 | 外部hookが `update` を呼び、タイトル・状態・通知を更新する |
-| ペイン選択 | tmuxコマンドで通知を消し、選択中の枠色を更新する |
+| ペインごとの枠色 | ペインの識別用。作業状態によっては変わらない |
+| 緑の `●` | 実行中 (`working`) |
+| マゼンタの `●` | 入力・承認待ち (`waiting`) |
+| 赤の `●` | エラー (`error`) |
+| `🔔` とメッセージ | 未確認の通知。対象ペインを選択すると消える |
 
-現在登録されているhookは、次のコマンドで確認できます。
-
-```bash
-tmux show-hooks -g | grep pane-beacon
-```
-
-プラグインを手動で再読込する場合は、通常はtmux設定全体を再読込します。
-
-```bash
-tmux source-file ~/.tmux.conf
-```
+[エージェント連携ガイド](docs/agents.ja.md) に Claude Code と Codex の設定例、状態表示の制約、自作ツールからの通知方法をまとめています。
 
 ## オプション
 
@@ -148,145 +142,14 @@ scripts/alert.sh <pane_id> <message> [window-status-style]
 
 アラートは対象ペインを選択すると解除されます。
 
-## コーディングエージェント
+## 困ったとき
 
-### 作業要約の表示に設定は要らない
+- **枠に何も出ない**: `~/.tmux.conf` の末尾で TPM を実行しているか確認し、`tmux source-file ~/.tmux.conf` で再読込します。
+- **バイナリを取得できない**: GitHub へ接続できるか確認します。Rust が使える場合は、プラグインディレクトリで `make build` を実行してから再読込できます。
+- **実行状態が出ない**: [エージェント連携ガイド](docs/agents.ja.md) の hook 設定が必要です。タイトルの表示だけでは状態は更新されません。
+- **完了通知が出ない**: 操作中のペインには通知を出しません。別のペインを選択した状態で試してください。
 
-Claude Code と Codex は、いま取り組んでいる作業の短い要約を、端末タイトルを変える標準の制御文字列 (`ESC ] 2 ; タイトル BEL`) で出力しています。tmux の中ではこれを tmux がペインの `pane_title` として保持し、このプラグインの `pane-border-format` が枠線に表示します。要約を出すためにエージェント側からこのプラグインを呼ぶ必要はなく、エージェントがタイトルを変えると枠線の表示もすぐ追従します。
-
-| エージェント | タイトルの例 | 出どころ |
-|---|---|---|
-| Claude Code | `✳ tmuxペインの仕組みの解説` | 会話の内容から Claude Code が作るトピック名。`/rename` で手動で付けられ、`CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` で止められる |
-| Codex | `確認する .NET Coreのメモリ管理 \| my-project` | Codex の TUI がスレッドとプロジェクト名から組み立てる。表示する項目は `tui.terminal_title` の設定で選べる |
-
-タイトルがホスト名のままのペインは、どのプログラムもタイトルを付けていないため、代わりに `@pane_beacon_title_fallback` を表示します。
-
-### エージェントの hook から実行状態とアラートを送る
-
-エージェントがまだ動いているのか、背景のペインで終わったのか、入力を待っているのかは、タイトルだけでは分かりません。これはエージェントの hook から `update` で送ります。`--summary` を付けなければ、`update` はエージェントが付けたタイトルには触れず、状態だけを記録します。
-
-| hook | 状態 | 枠線 | 背景のペインへのアラート |
-|---|---|---|---|
-| `UserPromptSubmit`、`PostToolUse` | `working` | 緑の `●` | なし |
-| `PermissionRequest` | `waiting` | マゼンタの `●` | あり |
-| `Stop` | `completed` | 記号なし | あり |
-
-`PostToolUse` は、権限の確認を承認したあとに状態を `working` へ戻し、古くなった入力待ちのアラートを消すために使います。ほかのツールが出したアラートは残します。hook はエージェントのペインの中で実行されるので、`$TMUX_PANE` がそのペインを指します。`scripts/pane-beacon.sh` は、バイナリがどこに置かれていても探して実行します。先頭の条件は、tmux の外でエージェントを動かしたときに呼び出しを飛ばすためのものです。
-
-Claude Code (`~/.claude/settings.json`):
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status working || true"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status working || true"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status waiting || true"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent claude --status completed || true"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Codex (`~/.codex/hooks.json`) も同じ形式です。追加した hook は、Codex で一度 `/hooks` を実行して信頼済みにしてください。
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status working || true"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status working || true"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status waiting || true"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"$TMUX_PANE\" ] || ~/.tmux/plugins/tmux-pane-beacon/scripts/pane-beacon.sh update \"$TMUX_PANE\" --agent codex --status completed || true"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-記号は、状態を送ったときと同じコマンドがペインで動いている間だけ表示します。`Stop` hook が来ないままエージェントが終わっても、シェルに戻れば記号は消えます。Claude Code で Esc を押してターンを中断した場合は hook が呼ばれないため、次のプロンプトを送るまで `working` のまま表示されます。
-
-### 要約を自分で送る
-
-端末タイトルを出さないツールは、`--summary` で要約も送れます。`--summary` はペインのタイトルを上書きするため、Claude Code や Codex の hook では付けないでください。エージェント自身が付けたタイトルが置き換わります。
-
-```bash
-~/.tmux/plugins/tmux-pane-beacon/bin/pane-beacon update "$TMUX_PANE" \
-  --agent my-tool --status working --summary "マイグレーションを実行中"
-```
-
-状態は `working`、`waiting`、`completed`、`error` を指定できます。`waiting`、`completed`、`error` は、対象ペインが表示されていない場合にアラートも設定します。状態とアラートを消すには `clear <pane_id>` を使います。
+読込順序や登録される hook は [プラグインの仕組み](docs/how-it-works.ja.md) を参照してください。
 
 ## 注意
 
