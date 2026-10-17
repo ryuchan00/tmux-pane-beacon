@@ -15,6 +15,8 @@ Give each tmux pane its own color and show its number and terminal title on the 
 
 [Install](#install) · [Agent status](#agent-status-and-notifications) · [Options](#options) · [Troubleshooting](#troubleshooting)
 
+Introduction article (Japanese): [tmux のペインに色とエージェントの状態を出すプラグインを作った](https://leokun0210.hatenablog.com/entry/tmux-pane-beacon)
+
 ## Requirements
 
 - tmux 3.0 or later (the plugin uses per-pane options, `set-option -p`, and
